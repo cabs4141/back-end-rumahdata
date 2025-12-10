@@ -1,0 +1,56 @@
+import { pool } from "../src/db.js";
+import bcrypt from "bcryptjs";
+
+export const register = async (req, res) => {
+    try {
+        const { nip, password } = req.body;
+
+        const hashedPassword = await bcrypt.hash(password, 10);
+
+        const result = await pool.query(
+            "INSERT INTO users (nip, password) VALUES ($1, $2) RETURNING id, nip",
+            [nip, hashedPassword]
+        );
+
+        res.json({
+            message: "Registrasi berhasil",
+            user: result.rows[0],
+        });
+    } catch (error) {
+        console.error(error);
+
+        if (error.code === "23505") {
+            return res.status(400).json({ error: "NIP sudah terdaftar" });
+        }
+
+        res.status(500).json({ error: "Terjadi kesalahan server" });
+    }
+};
+
+export const login = async (req, res) => {
+    try {
+        const { nip, password } = req.body;
+
+        const result = await pool.query(
+            "SELECT * FROM users WHERE nip = $1",
+            [nip]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(400).json({ error: "NIP tidak ditemukan" });
+        }
+
+        const user = result.rows[0];
+
+        const validPass = await bcrypt.compare(password, user.password);
+
+        if (!validPass) {
+            return res.status(400).json({ error: "Password salah" });
+        }
+
+        res.json({ message: "Login berhasil", user: { id: user.id, nip: user.nip } });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Terjadi kesalahan server" });
+    }
+};
