@@ -71,3 +71,4 @@ export const login = async (req, res) => {
 export const logout = (req, res) => {
   res.json({ message: "Logout berhasil" });
 };
+
