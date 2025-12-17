@@ -2,22 +2,35 @@ import { pool } from "../src/db.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
-// REGISTER
+// REGISTER = pending
 export const register = async (req, res) => {
   try {
-    const { nip, password } = req.body;
+    const { nip, nama, password, id_bidang } = req.body;
 
+    // Validasi wajib diisi
+    if (!nip || !nama || !password) {
+      return res.status(400).json({ error: "NIP, nama, dan password wajib diisi" });
+    }
+
+    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const result = await pool.query("INSERT INTO users (nip, password) VALUES ($1, $2) RETURNING id, nip", [nip, hashedPassword]);
+    // Insert ke database → sementara role = 'user'
+    const result = await pool.query(
+      `INSERT INTO users (nip, nama, password, role, id_bidang, status)
+      VALUES ($1, $2, $3, 'user', $4, 'pending')
+      RETURNING id, nip, nama, role, id_bidang, status`,
+      [nip, nama, hashedPassword, id_bidang]
+    );
 
     res.json({
-      message: "Registrasi berhasil",
+      message: "Registrasi berhasil. Menunggu approval super admin",
       user: result.rows[0],
     });
   } catch (error) {
     console.error(error);
 
+    // NIP sudah terdaftar
     if (error.code === "23505") {
       return res.status(400).json({ error: "NIP sudah terdaftar" });
     }
@@ -26,7 +39,7 @@ export const register = async (req, res) => {
   }
 };
 
-// LOGIN dengan JWT
+// LOGIN = approve
 export const login = async (req, res) => {
   try {
     const { nip, password } = req.body;
@@ -39,15 +52,23 @@ export const login = async (req, res) => {
 
     const user = result.rows[0];
 
+    // Cek status
+    if (user.status !== 'approved') {
+      return res.status(403).json({ error: "Akun Anda belum diaktifkan, hubungi super admin" });
+    }
+
+    // Cek password
     const validPass = await bcrypt.compare(password, user.password);
     if (!validPass) {
       return res.status(400).json({ error: "Password salah" });
     }
 
-    const userLevel = nip === "123456" ? "admin" : "user"; // contoh sederhana
+    // Ambil role dari database
+    const userRole = user.role;
+
     // Buat token JWT
     const token = jwt.sign(
-      { id: user.id, nip: user.nip, userLevel }, // userLevel hanya di token
+      { id: user.id, nip: user.nip, role: userRole, id_bidang: user.id_bidang },
       process.env.JWT_SECRET,
       { expiresIn: "1h" }
     );
@@ -55,7 +76,13 @@ export const login = async (req, res) => {
     res.json({
       message: "Login berhasil",
       token,
-      user: { id: user.id, nip: user.nip },
+      user: {
+        id: user.id,
+        nip: user.nip,
+        nama: user.nama,
+        role: user.role,
+        id_bidang: user.id_bidang,
+      },
     });
   } catch (error) {
     console.error(error);
@@ -63,6 +90,7 @@ export const login = async (req, res) => {
   }
 };
 
+// LOGOUT
 export const logout = (req, res) => {
   res.json({ message: "Logout berhasil" });
 };
