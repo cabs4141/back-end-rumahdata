@@ -1,9 +1,29 @@
 import express from "express";
-import { register, login, logout } from "../controllers/authController.js";
+import {
+  register,
+  login,
+  logout,
+  approveUser,
+} from "../controllers/authController.js";
+
+import { authMiddleware } from "../Middlewares/authMiddleware.js";
+import { superadminOnly } from "../Middlewares/roleMiddleware.js";
 
 const router = express.Router();
 
+// Public
 router.post("/register", register);
 router.post("/login", login);
-router.post("/logout", logout);
+
+// Protected
+router.post("/logout", authMiddleware, logout);
+
+// 🔐 SUPERADMIN ONLY
+router.post(
+  "/approve",
+  authMiddleware,
+  superadminOnly,
+  approveUser
+);
+
 export default router;
