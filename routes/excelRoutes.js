@@ -5,6 +5,8 @@ import {
   insertExcelToDBPTK,
   insertExcelToDBDataSekolah,
   showAllData,
+  verifyToken,
+  showDataSekolahByNama,
 } from "../controllers/excelController.js";
 const router = express.Router();
 if (!fs.existsSync("uploads")) {
@@ -33,4 +35,9 @@ router.post(
   insertExcelToDBDataSekolah
 );
 router.get("/excel/show-all", showAllData);
+router.get(
+  "/excel/show-data-sekolah-by-nama",
+  verifyToken,
+  showDataSekolahByNama
+);
 export default router;
