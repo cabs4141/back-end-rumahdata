@@ -11,7 +11,7 @@ export const register = async (req, res) => {
     if (!nip || !nama || !password) {
       return res.status(400).json({ error: "NIP, nama, dan password wajib diisi" });
     }
-
+//aas ganteng
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
