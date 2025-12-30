@@ -11,7 +11,6 @@ export const register = async (req, res) => {
     if (!nip || !nama || !password) {
       return res.status(400).json({ error: "NIP, nama, dan password wajib diisi" });
     }
-//aas ganteng
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -23,7 +22,7 @@ export const register = async (req, res) => {
       [nip, nama, hashedPassword, id_bidang]
     );
 
-    res.json({
+    res.status(200).json({
       message: "Registrasi berhasil. Menunggu approval super admin",
       user: result.rows[0],
     });
@@ -47,33 +46,30 @@ export const login = async (req, res) => {
     const result = await pool.query("SELECT * FROM users WHERE nip = $1", [nip]);
 
     if (result.rows.length === 0) {
-      return res.status(400).json({ error: "NIP tidak ditemukan" });
+      return res.status(400).json({ message: "NIP tidak ditemukan" });
     }
 
     const user = result.rows[0];
 
-    // Cek status
-    if (user.status !== 'approved') {
-      return res.status(403).json({ error: "Akun Anda belum diaktifkan, hubungi super admin" });
+    if (user.status !== "approved") {
+      return res.status(403).json({
+        message: "Akun anda belum aktif, untuk mengaktifkan hubungi super admin",
+      });
     }
 
     // Cek password
     const validPass = await bcrypt.compare(password, user.password);
     if (!validPass) {
-      return res.status(400).json({ error: "Password salah" });
+      return res.status(400).json({ message: "Password salah" });
     }
 
     // Ambil role dari database
     const userRole = user.role;
 
     // Buat token JWT
-    const token = jwt.sign(
-      { id: user.id, nip: user.nip, role: userRole, id_bidang: user.id_bidang },
-      process.env.JWT_SECRET,
-      { expiresIn: "1h" }
-    );
+    const token = jwt.sign({ id: user.id, nip: user.nip, nama: user.nama, role: userRole, id_bidang: user.id_bidang, status: user.status }, process.env.JWT_SECRET, { expiresIn: "1h" });
 
-    res.json({
+    res.status(200).json({
       message: "Login berhasil",
       token,
       user: {
@@ -82,6 +78,7 @@ export const login = async (req, res) => {
         nama: user.nama,
         role: user.role,
         id_bidang: user.id_bidang,
+        status: user.status,
       },
     });
   } catch (error) {
