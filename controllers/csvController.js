@@ -20,7 +20,7 @@ export const getPTK = async (req, res) => {
 
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = 200;
+    const limit = 10;
     const offset = (page - 1) * limit;
 
     const dataQuery = `
@@ -34,10 +34,7 @@ export const getPTK = async (req, res) => {
       SELECT COUNT(*) FROM public.ptk
     `;
 
-    const [dataResult, countResult] = await Promise.all([
-      pool.query(dataQuery, [limit, offset]),
-      pool.query(countQuery),
-    ]);
+    const [dataResult, countResult] = await Promise.all([pool.query(dataQuery, [limit, offset]), pool.query(countQuery)]);
 
     const totalData = parseInt(countResult.rows[0].count);
     const totalPages = Math.ceil(totalData / limit);
@@ -88,10 +85,7 @@ export const getSekolah = async (req, res) => {
       SELECT COUNT(*) FROM public.data_sekolah
     `;
 
-    const [dataResult, countResult] = await Promise.all([
-      pool.query(dataQuery, [limit, offset]),
-      pool.query(countQuery),
-    ]);
+    const [dataResult, countResult] = await Promise.all([pool.query(dataQuery, [limit, offset]), pool.query(countQuery)]);
 
     const totalData = parseInt(countResult.rows[0].count);
     const totalPages = Math.ceil(totalData / limit);
