@@ -1,23 +1,8 @@
 import { pool } from "../src/db.js";
 import jwt from "jsonwebtoken";
 
-/* ======================
-   GET DATA PTK
-====================== */
-export const getPTK = async (req, res) => {
-  // 🔐 VALIDASI TOKEN
-  const authHeader = req.headers.authorization;
-  if (!authHeader) {
-    return res.status(401).json({ message: "Token tidak ditemukan" });
-  }
-
-  const token = authHeader.split(" ")[1];
-  try {
-    jwt.verify(token, process.env.JWT_SECRET);
-  } catch (err) {
-    return res.status(403).json({ message: "Token tidak valid" });
-  }
-
+const getPTK = async (req, res) => {
+  //validasi token udah di middleware
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = 10;
@@ -30,12 +15,8 @@ export const getPTK = async (req, res) => {
       LIMIT $1 OFFSET $2
     `;
 
-    const countQuery = `
-      SELECT COUNT(*) FROM public.ptk
-    `;
-
+    const countQuery = `SELECT COUNT(*) FROM public.ptk`;
     const [dataResult, countResult] = await Promise.all([pool.query(dataQuery, [limit, offset]), pool.query(countQuery)]);
-
     const totalData = parseInt(countResult.rows[0].count);
     const totalPages = Math.ceil(totalData / limit);
 
@@ -52,10 +33,7 @@ export const getPTK = async (req, res) => {
   }
 };
 
-/* ======================
-   GET DATA SEKOLAH
-====================== */
-export const getSekolah = async (req, res) => {
+const getSekolah = async (req, res) => {
   // 🔐 VALIDASI TOKEN
   const authHeader = req.headers.authorization;
   if (!authHeader) {
@@ -102,3 +80,5 @@ export const getSekolah = async (req, res) => {
     res.status(500).json({ message: "Gagal memproses data sekolah" });
   }
 };
+
+export { getPTK, getSekolah };

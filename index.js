@@ -6,7 +6,7 @@ import csvRoutes from "./routes/csvRoutes.js";
 import excelRoutes from "./routes/excelRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
-import userRoutes from "./routes/getUsersRoutes.js";
+import userRoutes from "./routes/userRoutes.js";
 import kegiatanRoutes from "./routes/kegiatanRoutes.js";
 
 import { connectDB } from "./src/db.js";
