@@ -206,40 +206,29 @@ const addKegiatan = async (req, res) => {
   }
 };
 
-// const getPTKBySekolah = async (req, res) => {
-//   try {
-//     const { sekolahId } = req.params;
-//     console.log("ID yang dicari:", sekolahId); // Cek di terminal/console backend
-
-//     const result = await pool.query("SELECT * FROM public.ptk WHERE sekolah_id = $1", [sekolahId]);
-
-//     console.log("Jumlah data ditemukan:", result.rowCount);
-//     res.json(result.rows);
-//   } catch (err) {
-//     console.error(err);
-//     res.status(500).json({ message: "Error" });
-//   }
-// };
-
 const searchPTK = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
-    const search = req.query.query || ""; // Parameter pencarian
+    const search = req.query.query || "";
     const offset = (page - 1) * limit;
 
     // Query untuk data: Cek ptk_id (exact) atau nama (fuzzy)
     const dataQuery = `
       SELECT * FROM public.ptk
-      WHERE ptk_id = $1 OR nama ILIKE $2
+      WHERE ptk_id ILIKE $1 
+         OR nama ILIKE $2 
+         OR nip ILIKE $2
       ORDER BY nama ASC
       LIMIT $3 OFFSET $4
     `;
 
-    // Query untuk hitung total data agar pagination akurat
+    // 2. Update countQuery: Samakan logika WHERE-nya
     const countQuery = `
       SELECT COUNT(*) FROM public.ptk
-      WHERE ptk_id = $1 OR nama ILIKE $2
+      WHERE LOWER(ptk_id) = LOWER($1) 
+         OR nama ILIKE $2 
+         OR nip ILIKE $2
     `;
 
     const searchParam = `%${search}%`;
@@ -272,14 +261,14 @@ const searchSekolah = async (req, res) => {
 
     const dataQuery = `
       SELECT * FROM public.data_sekolah
-      WHERE sekolah_id = $1 OR nama ILIKE $2
+      WHERE sekolah_id ILIKE $1 OR nama ILIKE $2
       ORDER BY nama ASC
       LIMIT $3 OFFSET $4
     `;
 
     const countQuery = `
       SELECT COUNT(*) FROM public.data_sekolah
-      WHERE sekolah_id = $1 OR nama ILIKE $2
+      WHERE sekolah_id ILIKE $1 OR nama ILIKE $2
     `;
 
     const searchParam = `%${search}%`;
@@ -303,4 +292,65 @@ const searchSekolah = async (req, res) => {
   }
 };
 
-export { getPTK, getSekolah, deleteAllPtk, deleteAllSekolah, addKegiatan, searchPTK, searchSekolah };
+const getSekolahDetail = async (req, res) => {
+  try {
+    const { sekolah_id } = req.params;
+    const search = req.query.query || "";
+
+    // 1. Query Profil Sekolah
+    const sekolahQuery = `
+      SELECT nama, npsn, alamat_jalan, email 
+      FROM public.data_sekolah 
+      WHERE LOWER(sekolah_id) = LOWER($1)
+    `;
+    const sekolahRes = await pool.query(sekolahQuery, [sekolah_id]);
+
+    if (sekolahRes.rows.length === 0) {
+      return res.status(404).json({ message: "Sekolah tidak ditemukan" });
+    }
+
+    const { nama: namaSekolah, npsn: npsnSekolah, alamat_jalan, email } = sekolahRes.rows[0];
+
+    // 2. Query Seluruh Data PTK tanpa LIMIT dan OFFSET
+    const dataQuery = `
+      SELECT ptk_id, nama, semester, nik, nip, jenis_ptk 
+      FROM public.ptk
+      WHERE LOWER(sekolah_id) = LOWER($1) 
+      AND (nama ILIKE $2)
+      ORDER BY nama ASC
+    `;
+
+    // Query count tetap diperlukan untuk informasi total data di UI
+    const countQuery = `
+      SELECT COUNT(*) FROM public.ptk
+      WHERE LOWER(sekolah_id) = LOWER($1)
+      AND (nama ILIKE $2)
+    `;
+
+    const searchParam = `%${search}%`;
+    const values = [sekolah_id, searchParam];
+
+    const [dataResult, countResult] = await Promise.all([
+      pool.query(dataQuery, values), // Hapus limit & offset dari sini
+      pool.query(countQuery, values),
+    ]);
+
+    const totalData = parseInt(countResult.rows[0].count);
+
+    // Response JSON (Hanya mengirim data yang diperlukan)
+    res.json({
+      sekolah_terpilih: namaSekolah,
+      alamat: alamat_jalan,
+      email: email,
+      npsn: npsnSekolah,
+      sekolah_id: sekolah_id.toLowerCase(),
+      totalData: totalData,
+      data_ptk: dataResult.rows, // Berisi seluruh data PTK
+    });
+  } catch (err) {
+    console.error("GET PTK BY SEKOLAH ERROR:", err);
+    res.status(500).json({ message: "Gagal memuat data" });
+  }
+};
+
+export { getPTK, getSekolah, deleteAllPtk, deleteAllSekolah, addKegiatan, searchPTK, searchSekolah, getSekolahDetail };
