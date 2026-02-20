@@ -19,13 +19,16 @@ const upload = multer({
   }),
   limits: { fileSize: 1024 * 1024 * 1024 }, // 1GB
   fileFilter: (req, file, cb) => {
-    if (
-      file.mimetype ===
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    ) {
+    const allowedMimeTypes = [
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // XLSX
+      "text/csv", // CSV
+      "application/csv", // Alternatif CSV
+    ];
+
+    if (allowedMimeTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error("Hanya file .xlsx"));
+      cb(new Error("Hanya diperbolehkan file .xlsx atau .csv"));
     }
   },
 });
