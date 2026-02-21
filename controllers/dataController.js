@@ -298,4 +298,109 @@ const getSekolahDetail = async (req, res) => {
   }
 };
 
-export { getPTK, getSekolah, deleteAllPtk, deleteAllSekolah, addKegiatan, searchPTK, searchSekolah, getSekolahDetail };
+// 1. get detail peserta (by id)
+const getPesertaDetail = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const query = `
+      SELECT *
+      FROM public.peserta
+      WHERE peserta_id = $1
+    `;
+
+    const result = await pool.query(query, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "Peserta tidak ditemukan" });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("GET PESERTA DETAIL ERROR:", err);
+    res.status(500).json({ message: "Gagal mengambil detail peserta" });
+  }
+};
+
+// 2. search peserta by name
+const searchPeserta = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const search = req.query.query || "";
+    const offset = (page - 1) * limit;
+
+    const dataQuery = `
+      SELECT *
+      FROM public.peserta
+      WHERE nama ILIKE $1
+      ORDER BY nama ASC
+      LIMIT $2 OFFSET $3
+    `;
+
+    const countQuery = `
+      SELECT COUNT(*) FROM public.peserta
+      WHERE nama ILIKE $1
+    `;
+
+    const searchParam = `%${search}%`;
+
+    const [dataResult, countResult] = await Promise.all([
+      pool.query(dataQuery, [searchParam, limit, offset]),
+      pool.query(countQuery, [searchParam]),
+    ]);
+
+    const totalData = parseInt(countResult.rows[0].count);
+    const totalPages = Math.ceil(totalData / limit);
+
+    res.json({
+      page,
+      limit,
+      totalData,
+      totalPages,
+      data: dataResult.rows,
+    });
+  } catch (err) {
+    console.error("SEARCH PESERTA ERROR:", err);
+    res.status(500).json({ message: "Gagal mencari peserta" });
+  }
+};
+
+// 3. delete peserta by id
+const deletePeserta = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const result = await pool.query(
+      "DELETE FROM public.peserta WHERE peserta_id = $1 RETURNING *",
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "Peserta tidak ditemukan" });
+    }
+
+    res.json({ message: "Peserta berhasil dihapus" });
+  } catch (err) {
+    console.error("DELETE PESERTA ERROR:", err);
+    res.status(500).json({ message: "Gagal menghapus peserta" });
+  }
+};
+
+// 4. delete all peserta
+const deleteAllPeserta = async (req, res) => {
+  try {
+    await pool.query(
+      "TRUNCATE TABLE public.peserta RESTART IDENTITY CASCADE"
+    );
+
+    res.json({
+      message: "Semua peserta berhasil dihapus dan ID di-reset",
+    });
+  } catch (err) {
+    console.error("DELETE ALL PESERTA ERROR:", err);
+    res.status(500).json({ message: "Gagal menghapus semua peserta" });
+  }
+};
+
+export { getPTK, getSekolah, deleteAllPtk, deleteAllSekolah, addKegiatan, searchPTK, searchSekolah, getSekolahDetail, getPesertaDetail, searchPeserta, deletePeserta, deleteAllPeserta};
