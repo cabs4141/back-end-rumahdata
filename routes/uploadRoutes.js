@@ -1,7 +1,7 @@
 import express from "express";
 import fs from "fs";
 import multer from "multer";
-import { addToPtk, addToSekolah } from "../controllers/uploadController.js";
+import { addToPtk, addToSekolah, addToPeserta } from "../controllers/uploadController.js";
 import { authenticateToken } from "../src/middleware/authMiddleware.js";
 const router = express.Router();
 if (!fs.existsSync("uploads")) {
@@ -25,4 +25,5 @@ const upload = multer({
 
 router.post("/upload/ptk", upload.single("file"), authenticateToken, addToPtk);
 router.post("/upload/sekolah", upload.single("file"), authenticateToken, addToSekolah);
+router.post("/upload/peserta", upload.single("file"), authenticateToken, addToPeserta);
 export default router;
