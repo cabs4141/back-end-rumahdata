@@ -403,4 +403,98 @@ const deleteAllPeserta = async (req, res) => {
   }
 };
 
-export { getPTK, getSekolah, deleteAllPtk, deleteAllSekolah, addKegiatan, searchPTK, searchSekolah, getSekolahDetail, getPesertaDetail, searchPeserta, deletePeserta, deleteAllPeserta};
+    /* =================================
+    GET ALL PPG
+    ================================= */
+    const getAllPPG = async (req, res) => {
+    try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+
+        const offset = (page - 1) * limit;
+        const totalResult = await pool.query(`
+        SELECT COUNT(*) FROM data_ppg
+        `);
+
+        const totalData = parseInt(totalResult.rows[0].count);
+        const totalPage = Math.ceil(totalData / limit);
+
+        /* ======================
+        DATA PAGINATION
+        ====================== */
+        const { rows } = await pool.query(
+        `
+        SELECT *
+        FROM data_ppg
+        ORDER BY no::INTEGER ASC
+        LIMIT $1 OFFSET $2
+        `,
+        [limit, offset]
+        );
+
+      res.json({
+      page,
+      limit,
+      totalData,
+      totalPage,
+      data: rows,
+    });
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+    };
+
+
+    /* =================================
+    SEARCH
+    ================================= */
+    const searchPPG = async (req, res) => {
+    try {
+        const q = req.query.keyword?.trim();
+
+        // keyword kosong / terlalu pendek
+        if (!q || q.length < 2) {
+            return res.json([]);
+        }
+
+        const result = await pool.query(
+            `
+            SELECT *
+            FROM data_ppg
+            WHERE nama_lengkap ~* $1
+            ORDER BY nama_lengkap
+            LIMIT 100
+            `,
+            [`\\m${q}\\M`]
+        );
+
+        if (result.rows.length === 0) {
+            return res.json({
+                message: "Nama tidak ditemukan",
+            });
+        }
+
+        res.json(result.rows);
+
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: err.message });
+    }
+};
+
+
+    /* =================================
+    DELETE ALL
+    ================================= */
+    const deleteAllPPG = async (req, res) => {
+    try {
+        await pool.query(`TRUNCATE TABLE data_ppg RESTART IDENTITY`);
+
+        res.json({ message: "Semua data PPG berhasil dihapus" });
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+    };
+
+
+export { getPTK, getSekolah, deleteAllPtk, deleteAllSekolah, addKegiatan, searchPTK, searchSekolah, getSekolahDetail, getPesertaDetail, searchPeserta, deletePeserta, deleteAllPeserta, getAllPPG, searchPPG, deleteAllPPG};

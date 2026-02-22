@@ -7,7 +7,6 @@ import authRoutes from "./routes/authRoutes.js";
 
 import splitsdataRoutes from "./routes/splitsdataRoutes.js";
 import kegiatanRoutes from "./routes/kegiatanRoutes.js";
-import ppgRoutes from "./routes/ppgRoutes.js";
 
 
 import userRoutes from "./routes/userRoutes.js";
@@ -29,7 +28,6 @@ app.use("/api/auth", authRoutes);
 app.use("/api/splitsdata", splitsdataRoutes);
 app.use("/api", userRoutes);
 app.use("/api/kegiatan", kegiatanRoutes);
-app.use("/api/ppg", ppgRoutes);
 
 
 // root endpoint

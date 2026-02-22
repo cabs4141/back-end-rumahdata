@@ -1,5 +1,5 @@
 import express from "express";
-import { getPTK, getSekolah, deleteAllPtk, deleteAllSekolah, addKegiatan, searchSekolah, searchPTK, getSekolahDetail, getPesertaDetail, searchPeserta, deletePeserta, deleteAllPeserta } from "../controllers/dataController.js";
+import { getPTK, getSekolah, deleteAllPtk, deleteAllSekolah, addKegiatan, searchSekolah, searchPTK, getSekolahDetail, getPesertaDetail, searchPeserta, deletePeserta, deleteAllPeserta, getAllPPG, searchPPG, deleteAllPPG} from "../controllers/dataController.js";
 import { authenticateToken } from "../src/middleware/authMiddleware.js";
 
 const router = express.Router();
@@ -23,5 +23,11 @@ router.get("/peserta/:id", authenticateToken, getPesertaDetail);
 router.get("/peserta/search", authenticateToken, searchPeserta);
 router.delete("/peserta/:id", authenticateToken, deletePeserta);
 router.delete("/peserta", authenticateToken, deleteAllPeserta);
+
+// PPG
+router.get("/getAllPPG", authenticateToken, getAllPPG);
+router.get("/searchPPG", authenticateToken, searchPPG);
+router.delete("/deleteAllPPG", authenticateToken, deleteAllPPG);
+
 
 export default router;
