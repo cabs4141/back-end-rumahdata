@@ -1,5 +1,6 @@
 import { pool } from "../src/db.js";
 
+//PTK
 const getPTK = async (req, res) => {
   //validasi token udah di middleware
   try {
@@ -29,125 +30,6 @@ const getPTK = async (req, res) => {
   } catch (err) {
     console.error("PTK ERROR:", err);
     res.status(500).json({ message: "Gagal memproses data PTK" });
-  }
-};
-
-const getSekolah = async (req, res) => {
-  try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
-    const offset = (page - 1) * limit;
-
-    const dataQuery = `
-      SELECT *
-      FROM public.data_sekolah
-      ORDER BY sekolah_id
-      LIMIT $1 OFFSET $2
-    `;
-
-    const countQuery = `
-      SELECT COUNT(*) FROM public.data_sekolah
-    `;
-
-    const [dataResult, countResult] = await Promise.all([pool.query(dataQuery, [limit, offset]), pool.query(countQuery)]);
-
-    const totalData = parseInt(countResult.rows[0].count);
-    const totalPages = Math.ceil(totalData / limit);
-
-    res.json({
-      page,
-      limit,
-      totalData,
-      totalPages,
-      data: dataResult.rows,
-    });
-  } catch (err) {
-    console.error("SEKOLAH ERROR:", err);
-    res.status(500).json({ message: "Gagal memproses data sekolah" });
-  }
-};
-
-const deleteAllPtk = async (req, res) => {
-  try {
-    // Menggunakan TRUNCATE lebih cepat untuk menghapus semua data
-    await pool.query("TRUNCATE TABLE public.ptk RESTART IDENTITY CASCADE");
-
-    res.json({
-      message: "Seluruh data PTK telah berhasil dihapus dan ID telah di-reset",
-    });
-  } catch (err) {
-    console.error("DELETE ALL PTK ERROR:", err);
-    res.status(500).json({ message: "Gagal menghapus semua data PTK" });
-  }
-};
-
-const deleteAllSekolah = async (req, res) => {
-  try {
-    await pool.query("TRUNCATE TABLE public.data_sekolah RESTART IDENTITY CASCADE");
-
-    res.json({
-      message: "Seluruh data sekolah telah berhasil dihapus dan ID telah di-reset",
-    });
-  } catch (err) {
-    console.error("DELETE ALL SEKOLAH ERROR:", err);
-    res.status(500).json({ message: "Gagal menghapus semua data sekolah" });
-  }
-};
-
-const addKegiatan = async (req, res) => {
-  const client = await pool.connect();
-
-  try {
-    const { nama_kegiatan, tanggal_pelaksanaan, jumlah_peserta, pic, kelengkapan } = req.body;
-
-    // 🔐 dari token
-    const user_id = req.user.id;
-    const id_bidang = req.user.id_bidang;
-
-    await client.query("BEGIN");
-
-    const kegiatanResult = await client.query(
-      `
-      INSERT INTO kegiatan (
-        nama_kegiatan,
-        tanggal_pelaksanaan,
-        jumlah_peserta,
-        pic,
-        user_id,
-        id_bidang
-      )
-      VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING id
-      `,
-      [nama_kegiatan, tanggal_pelaksanaan, jumlah_peserta, pic, user_id, id_bidang],
-    );
-
-    const kegiatanId = kegiatanResult.rows[0].id;
-
-    await client.query(
-      `
-      INSERT INTO kelengkapan_kegiatan (
-        kegiatan_id,
-        foto,
-        video,
-        upload_laporan
-      )
-      VALUES ($1, $2, $3, $4)
-      `,
-      [kegiatanId, kelengkapan?.foto ?? false, kelengkapan?.video ?? false, kelengkapan?.upload_laporan ?? false],
-    );
-
-    await client.query("COMMIT");
-
-    res.status(201).json({
-      message: "Kegiatan berhasil ditambahkan",
-    });
-  } catch (error) {
-    await client.query("ROLLBACK");
-    console.error(error);
-    res.status(500).json({ message: "Gagal menambahkan kegiatan" });
-  } finally {
-    client.release();
   }
 };
 
@@ -194,6 +76,69 @@ const searchPTK = async (req, res) => {
   } catch (err) {
     console.error("SEARCH PTK ERROR:", err);
     res.status(500).json({ message: "Gagal memproses data PTK" });
+  }
+};
+
+const deleteAllPtk = async (req, res) => {
+  try {
+    // Menggunakan TRUNCATE lebih cepat untuk menghapus semua data
+    await pool.query("TRUNCATE TABLE public.ptk RESTART IDENTITY CASCADE");
+
+    res.json({
+      message: "Seluruh data PTK telah berhasil dihapus dan ID telah di-reset",
+    });
+  } catch (err) {
+    console.error("DELETE ALL PTK ERROR:", err);
+    res.status(500).json({ message: "Gagal menghapus semua data PTK" });
+  }
+};
+
+//SEKOLAH
+const getSekolah = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+
+    const dataQuery = `
+      SELECT *
+      FROM public.data_sekolah
+      ORDER BY sekolah_id
+      LIMIT $1 OFFSET $2
+    `;
+
+    const countQuery = `
+      SELECT COUNT(*) FROM public.data_sekolah
+    `;
+
+    const [dataResult, countResult] = await Promise.all([pool.query(dataQuery, [limit, offset]), pool.query(countQuery)]);
+
+    const totalData = parseInt(countResult.rows[0].count);
+    const totalPages = Math.ceil(totalData / limit);
+
+    res.json({
+      page,
+      limit,
+      totalData,
+      totalPages,
+      data: dataResult.rows,
+    });
+  } catch (err) {
+    console.error("SEKOLAH ERROR:", err);
+    res.status(500).json({ message: "Gagal memproses data sekolah" });
+  }
+};
+
+const deleteAllSekolah = async (req, res) => {
+  try {
+    await pool.query("TRUNCATE TABLE public.data_sekolah RESTART IDENTITY CASCADE");
+
+    res.json({
+      message: "Seluruh data sekolah telah berhasil dihapus dan ID telah di-reset",
+    });
+  } catch (err) {
+    console.error("DELETE ALL SEKOLAH ERROR:", err);
+    res.status(500).json({ message: "Gagal menghapus semua data sekolah" });
   }
 };
 
@@ -298,7 +243,40 @@ const getSekolahDetail = async (req, res) => {
   }
 };
 
-// 1. get detail peserta (by id)
+//PESERTA
+const getAllPeserta = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+
+    const dataQuery = `
+      SELECT *
+      FROM public.peserta
+      ORDER BY peserta_id ASC
+      LIMIT $1 OFFSET $2
+    `;
+
+    const countQuery = `SELECT COUNT(*) FROM public.peserta`;
+
+    const [dataResult, countResult] = await Promise.all([pool.query(dataQuery, [limit, offset]), pool.query(countQuery)]);
+
+    const totalData = parseInt(countResult.rows[0].count);
+    const totalPages = Math.ceil(totalData / limit);
+
+    res.json({
+      page,
+      limit,
+      totalData,
+      totalPages,
+      data: dataResult.rows,
+    });
+  } catch (err) {
+    console.error("GET ALL PESERTA ERROR:", err);
+    res.status(500).json({ message: "Gagal memproses data peserta" });
+  }
+};
+
 const getPesertaDetail = async (req, res) => {
   try {
     const { id } = req.params;
@@ -322,7 +300,6 @@ const getPesertaDetail = async (req, res) => {
   }
 };
 
-// 2. search peserta by name
 const searchPeserta = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -345,10 +322,7 @@ const searchPeserta = async (req, res) => {
 
     const searchParam = `%${search}%`;
 
-    const [dataResult, countResult] = await Promise.all([
-      pool.query(dataQuery, [searchParam, limit, offset]),
-      pool.query(countQuery, [searchParam]),
-    ]);
+    const [dataResult, countResult] = await Promise.all([pool.query(dataQuery, [searchParam, limit, offset]), pool.query(countQuery, [searchParam])]);
 
     const totalData = parseInt(countResult.rows[0].count);
     const totalPages = Math.ceil(totalData / limit);
@@ -366,15 +340,11 @@ const searchPeserta = async (req, res) => {
   }
 };
 
-// 3. delete peserta by id
 const deletePeserta = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const result = await pool.query(
-      "DELETE FROM public.peserta WHERE peserta_id = $1 RETURNING *",
-      [id]
-    );
+    const result = await pool.query("DELETE FROM public.peserta WHERE peserta_id = $1 RETURNING *", [id]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ message: "Peserta tidak ditemukan" });
@@ -387,114 +357,395 @@ const deletePeserta = async (req, res) => {
   }
 };
 
-// 4. delete all peserta
 const deleteAllPeserta = async (req, res) => {
   try {
-    await pool.query(
-      "TRUNCATE TABLE public.peserta RESTART IDENTITY CASCADE"
-    );
+    const role = req.user.role;
+
+    // 1. Validasi Role (Admin & Super Admin)
+    if (role !== "admin" && role !== "super admin") {
+      return res.status(403).json({
+        message: "Akses ditolak: Anda tidak memiliki akses",
+      });
+    }
+
+    // 2. Cek apakah data sudah kosong
+    const checkData = await pool.query("SELECT COUNT(*) FROM public.peserta");
+    const totalData = parseInt(checkData.rows[0].count);
+
+    if (totalData === 0) {
+      return res.status(400).json({
+        message: "data sudah kosong",
+      });
+    }
+
+    // 3. Eksekusi Penghapusan
+    await pool.query("TRUNCATE TABLE public.peserta RESTART IDENTITY CASCADE");
 
     res.json({
-      message: "Semua peserta berhasil dihapus dan ID di-reset",
+      message: `data berhasil dihapus`,
     });
   } catch (err) {
     console.error("DELETE ALL PESERTA ERROR:", err);
-    res.status(500).json({ message: "Gagal menghapus semua peserta" });
+    res.status(500).json({ message: "gagal menghapus data" });
   }
 };
 
-    /* =================================
-    GET ALL PPG
-    ================================= */
-    const getAllPPG = async (req, res) => {
-    try {
-        const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 10;
+//PPG
+const getAllPPG = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
 
-        const offset = (page - 1) * limit;
-        const totalResult = await pool.query(`
-        SELECT COUNT(*) FROM data_ppg
-        `);
+    const dataQuery = `
+      SELECT *
+      FROM public.ppg
+      ORDER BY no::INTEGER ASC
+      LIMIT $1 OFFSET $2
+    `;
 
-        const totalData = parseInt(totalResult.rows[0].count);
-        const totalPage = Math.ceil(totalData / limit);
+    const countQuery = `SELECT COUNT(*) FROM public.ppg`;
 
-        /* ======================
-        DATA PAGINATION
-        ====================== */
-        const { rows } = await pool.query(
-        `
-        SELECT *
-        FROM data_ppg
-        ORDER BY no::INTEGER ASC
-        LIMIT $1 OFFSET $2
-        `,
-        [limit, offset]
-        );
+    const [dataResult, countResult] = await Promise.all([pool.query(dataQuery, [limit, offset]), pool.query(countQuery)]);
 
-      res.json({
+    const totalData = parseInt(countResult.rows[0].count);
+    const totalPages = Math.ceil(totalData / limit);
+
+    res.json({
       page,
       limit,
       totalData,
-      totalPage,
-      data: rows,
+      totalPages,
+      data: dataResult.rows,
     });
-    } catch (err) {
-        res.status(500).json({ message: err.message });
-    }
-    };
-
-
-    /* =================================
-    SEARCH
-    ================================= */
-    const searchPPG = async (req, res) => {
-    try {
-        const q = req.query.keyword?.trim();
-
-        // keyword kosong / terlalu pendek
-        if (!q || q.length < 2) {
-            return res.json([]);
-        }
-
-        const result = await pool.query(
-            `
-            SELECT *
-            FROM data_ppg
-            WHERE nama_lengkap ~* $1
-            ORDER BY nama_lengkap
-            LIMIT 100
-            `,
-            [`\\m${q}\\M`]
-        );
-
-        if (result.rows.length === 0) {
-            return res.json({
-                message: "Nama tidak ditemukan",
-            });
-        }
-
-        res.json(result.rows);
-
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: err.message });
-    }
+  } catch (err) {
+    console.error("PPG ERROR:", err);
+    res.status(500).json({ message: "Gagal memproses data PPG" });
+  }
 };
 
+const searchPPG = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const search = req.query.keyword || req.query.query || "";
+    const offset = (page - 1) * limit;
 
-    /* =================================
-    DELETE ALL
-    ================================= */
-    const deleteAllPPG = async (req, res) => {
-    try {
-        await pool.query(`TRUNCATE TABLE data_ppg RESTART IDENTITY`);
+    const dataQuery = `
+      SELECT *
+      FROM public.ppg
+      WHERE nama_lengkap ILIKE $1
+      ORDER BY nama_lengkap ASC
+      LIMIT $2 OFFSET $3
+    `;
 
-        res.json({ message: "Semua data PPG berhasil dihapus" });
-    } catch (err) {
-        res.status(500).json({ message: err.message });
+    const countQuery = `
+      SELECT COUNT(*) FROM public.ppg
+      WHERE nama_lengkap ILIKE $1
+    `;
+
+    const searchParam = `%${search.trim()}%`;
+
+    const [dataResult, countResult] = await Promise.all([pool.query(dataQuery, [searchParam, limit, offset]), pool.query(countQuery, [searchParam])]);
+
+    const totalData = parseInt(countResult.rows[0].count);
+    const totalPages = Math.ceil(totalData / limit);
+
+    res.json({
+      page,
+      limit,
+      totalData,
+      totalPages,
+      data: dataResult.rows,
+    });
+  } catch (err) {
+    console.error("SEARCH PPG ERROR:", err);
+    res.status(500).json({ message: "Gagal mencari data PPG" });
+  }
+};
+
+const deleteAllPPG = async (req, res) => {
+  try {
+    // 1. Cek apakah tabel sudah kosong
+    const checkData = await pool.query("SELECT COUNT(*) FROM public.ppg");
+    const count = parseInt(checkData.rows[0].count);
+
+    if (count === 0) {
+      return res.status(400).json({
+        message: "Data sudah kosong",
+      });
     }
-    };
 
+    // 2. Jika ada data, baru jalankan TRUNCATE
+    await pool.query("TRUNCATE TABLE public.ppg RESTART IDENTITY CASCADE");
 
-export { getPTK, getSekolah, deleteAllPtk, deleteAllSekolah, addKegiatan, searchPTK, searchSekolah, getSekolahDetail, getPesertaDetail, searchPeserta, deletePeserta, deleteAllPeserta, getAllPPG, searchPPG, deleteAllPPG};
+    res.json({
+      message: `Data berhasil dihapus`,
+    });
+  } catch (err) {
+    console.error("DELETE ALL PPG ERROR:", err);
+    res.status(500).json({ message: "Gagal menghapus data" });
+  }
+};
+
+//KEGIATAN
+const insertKegiatan = async (req, res) => {
+  try {
+    const users_id = req.user.id;
+    const role = req.user.role;
+
+    if (role !== "admin" && role !== "super_admin") {
+      return res.status(403).json({
+        message: "Tidak punya akses membuat kegiatan",
+      });
+    }
+
+    const { nama_kegiatan, tempat_pelaksanaan, sasaran_peserta, total_peserta, tanggal_pelaksanaan, jenjang_peserta, pendidikan_terakhir } = req.body;
+
+    const parsedSasaran = parseInt(sasaran_peserta);
+    const parsedTotal = parseInt(total_peserta);
+
+    if (parsedTotal > parsedSasaran) {
+      return res.status(400).json({
+        message: "Total peserta tidak boleh melebihi sasaran peserta",
+      });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO public.kegiatan
+       (users_id, nama_kegiatan, tempat_pelaksanaan, sasaran_peserta, total_peserta, tanggal_pelaksanaan, jenjang_peserta, pendidikan_terakhir)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       RETURNING *`,
+      [users_id, nama_kegiatan, tempat_pelaksanaan, parsedSasaran, parsedTotal, tanggal_pelaksanaan, jenjang_peserta, pendidikan_terakhir],
+    );
+
+    res.status(201).json({
+      message: "Kegiatan berhasil ditambahkan",
+      data: result.rows[0],
+    });
+  } catch (err) {
+    console.error("INSERT KEGIATAN ERROR:", err);
+    res.status(500).json({ message: "Gagal menambahkan data kegiatan" });
+  }
+};
+
+const getAllKegiatan = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+
+    const dataQuery = `
+      SELECT 
+        k.id,
+        k.nama_kegiatan,
+        k.tempat_pelaksanaan,
+        k.sasaran_peserta,
+        k.total_peserta,
+        k.tanggal_pelaksanaan,
+        k.jenjang_peserta,
+        k.pendidikan_terakhir,
+        k.created_at,
+        u.nama AS created_by
+      FROM public.kegiatan k
+      JOIN public.users u ON k.users_id = u.id
+      ORDER BY k.created_at DESC
+      LIMIT $1 OFFSET $2
+    `;
+
+    const countQuery = `SELECT COUNT(*) FROM public.kegiatan`;
+
+    const [dataResult, countResult] = await Promise.all([pool.query(dataQuery, [limit, offset]), pool.query(countQuery)]);
+
+    const totalData = parseInt(countResult.rows[0].count);
+    const totalPages = Math.ceil(totalData / limit);
+
+    res.json({
+      page,
+      limit,
+      totalData,
+      totalPages,
+      data: dataResult.rows,
+    });
+  } catch (err) {
+    console.error("GET KEGIATAN ERROR:", err);
+    res.status(500).json({ message: "Gagal memproses data kegiatan" });
+  }
+};
+
+const getKegiatanById = async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+
+    if (isNaN(id)) {
+      return res.status(400).json({ message: "ID tidak valid" });
+    }
+
+    const query = `
+      SELECT 
+        k.id,
+        k.nama_kegiatan,
+        k.tempat_pelaksanaan,
+        k.sasaran_peserta,
+        k.total_peserta,
+        k.tanggal_pelaksanaan,
+        k.jenjang_peserta,
+        k.pendidikan_terakhir,
+        k.created_at,
+        u.nama AS created_by
+      FROM public.kegiatan k
+      JOIN public.users u ON k.users_id = u.id
+      WHERE k.id = $1
+    `;
+
+    const result = await pool.query(query, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "Kegiatan tidak ditemukan" });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("GET KEGIATAN BY ID ERROR:", err);
+    res.status(500).json({ message: "Gagal mengambil detail kegiatan" });
+  }
+};
+
+const searchKegiatanByName = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const search = req.query.query || "";
+    const offset = (page - 1) * limit;
+
+    const dataQuery = `
+      SELECT 
+        k.id,
+        k.nama_kegiatan,
+        k.tempat_pelaksanaan,
+        k.sasaran_peserta,
+        k.total_peserta,
+        k.tanggal_pelaksanaan,
+        k.jenjang_peserta,
+        k.pendidikan_terakhir,
+        k.created_at,
+        u.nama AS created_by
+      FROM public.kegiatan k
+      JOIN public.users u ON k.users_id = u.id
+      WHERE k.nama_kegiatan ILIKE $1
+      ORDER BY k.created_at DESC
+      LIMIT $2 OFFSET $3
+    `;
+
+    const countQuery = `
+      SELECT COUNT(*)
+      FROM public.kegiatan
+      WHERE nama_kegiatan ILIKE $1
+    `;
+
+    const searchParam = `%${search.trim()}%`;
+
+    const [dataResult, countResult] = await Promise.all([pool.query(dataQuery, [searchParam, limit, offset]), pool.query(countQuery, [searchParam])]);
+
+    const totalData = parseInt(countResult.rows[0].count);
+    const totalPages = Math.ceil(totalData / limit);
+
+    res.json({
+      page,
+      limit,
+      totalData,
+      totalPages,
+      data: dataResult.rows,
+    });
+  } catch (err) {
+    console.error("SEARCH KEGIATAN ERROR:", err);
+    res.status(500).json({ message: "Gagal mencari data kegiatan" });
+  }
+};
+
+const deleteKegiatanById = async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+
+    if (isNaN(id)) {
+      return res.status(400).json({ message: "ID tidak valid" });
+    }
+
+    const role = req.user.role;
+    if (role !== "admin") {
+      return res.status(403).json({ message: "Tidak punya akses menghapus kegiatan" });
+    }
+
+    const deleteQuery = `
+      DELETE FROM public.kegiatan
+      WHERE id = $1
+      RETURNING *
+    `;
+
+    const result = await pool.query(deleteQuery, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "Kegiatan tidak ditemukan" });
+    }
+
+    res.json({ message: "Kegiatan berhasil dihapus" });
+  } catch (err) {
+    console.error("DELETE KEGIATAN ERROR:", err);
+    res.status(500).json({ message: "Gagal menghapus kegiatan" });
+  }
+};
+
+const deleteAllKegiatan = async (req, res) => {
+  try {
+    const role = req.user.role;
+
+    // 1. Validasi Role (Admin & Super Admin)
+    if (role !== "admin" && role !== "super admin") {
+      return res.status(403).json({ message: "Akses ini hanya untuk admin dan super admin" });
+    }
+
+    // 2. Cek apakah data sudah kosong sebelum TRUNCATE
+    const checkData = await pool.query("SELECT COUNT(*) FROM public.kegiatan");
+    const totalData = parseInt(checkData.rows[0].count);
+
+    if (totalData === 0) {
+      return res.status(400).json({
+        message: "Data sudah kosong",
+      });
+    }
+
+    // 3. Eksekusi Penghapusan
+    await pool.query("TRUNCATE TABLE public.kegiatan RESTART IDENTITY CASCADE");
+
+    res.json({
+      message: `data berhasil dihapus`,
+    });
+  } catch (err) {
+    console.error("DELETE ALL KEGIATAN ERROR:", err);
+    res.status(500).json({ message: "Gagal menghapus data" });
+  }
+};
+
+export {
+  getPTK,
+  getSekolah,
+  deleteAllPtk,
+  deleteAllSekolah,
+  searchPTK,
+  searchSekolah,
+  getSekolahDetail,
+  getAllPeserta,
+  getPesertaDetail,
+  searchPeserta,
+  deletePeserta,
+  deleteAllPeserta,
+  getAllPPG,
+  searchPPG,
+  deleteAllPPG,
+  insertKegiatan,
+  getAllKegiatan,
+  getKegiatanById,
+  searchKegiatanByName,
+  deleteKegiatanById,
+  deleteAllKegiatan,
+};

@@ -1,7 +1,7 @@
 import express from "express";
 import fs from "fs";
 import multer from "multer";
-import { addToPtk, addToSekolah, addToPeserta, addtoPPG } from "../controllers/uploadController.js";
+import { uploadPtk, uploadSekolah, uploadPeserta, uploadPpg, uploadKegiatan } from "../controllers/uploadController.js";
 import { authenticateToken } from "../src/middleware/authMiddleware.js";
 const router = express.Router();
 if (!fs.existsSync("uploads")) {
@@ -23,8 +23,10 @@ const upload = multer({
   },
 });
 
-router.post("/upload/ptk", upload.single("file"), authenticateToken, addToPtk);
-router.post("/upload/sekolah", upload.single("file"), authenticateToken, addToSekolah);
-router.post("/upload/peserta", upload.single("file"), authenticateToken, addToPeserta);
-router.post("/upload-ppg", authenticateToken, upload.single("file"), addtoPPG);
+router.post("/upload/ptk", upload.single("file"), authenticateToken, uploadPtk);
+router.post("/upload/sekolah", upload.single("file"), authenticateToken, uploadSekolah);
+router.post("/upload/peserta", upload.single("file"), authenticateToken, uploadPeserta);
+router.post("/upload/ppg", upload.single("file"), authenticateToken, uploadPpg);
+router.post("/upload/kegiatan", upload.single("file"), authenticateToken, uploadKegiatan);
+
 export default router;
