@@ -618,7 +618,9 @@ const uploadKegiatan = async (req, res) => {
         tanggal_selesai TEXT,
         penanggung_jawab TEXT,
         tim TEXT,
-        tahun TEXT
+        tahun TEXT,
+        sasaran_peserta TEXT,
+        total_peserta TEXT
       )
     `);
 
@@ -646,6 +648,8 @@ const uploadKegiatan = async (req, res) => {
         penanggung_jawab,
         tim,
         tahun,
+        sasaran_peserta,
+        total_peserta,
         created_at,
         updated_at
       )
@@ -691,6 +695,8 @@ const uploadKegiatan = async (req, res) => {
         TRIM(penanggung_jawab),
         TRIM(tim),
         NULLIF(TRIM(tahun), '')::INT,
+        NULLIF(TRIM(sasaran_peserta), '')::INT,
+        NULLIF(TRIM(total_peserta), '')::INT,
         NOW(),
         NOW()
       FROM kegiatan_staging

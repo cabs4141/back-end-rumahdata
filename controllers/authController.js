@@ -8,7 +8,9 @@ const register = async (req, res) => {
 
     // Validasi wajib diisi
     if (!nip || !nama || !password) {
-      return res.status(400).json({ error: "NIP, nama, dan password wajib diisi" });
+      return res
+        .status(400)
+        .json({ error: "NIP, nama, dan password wajib diisi" });
     }
 
     // Hash password
@@ -19,7 +21,7 @@ const register = async (req, res) => {
       `INSERT INTO users (nip, nama, password, role, id_bidang, status)
       VALUES ($1, $2, $3, 'user', $4, 'pending')
       RETURNING id, nip, nama, role, id_bidang, status`,
-      [nip, nama, hashedPassword, id_bidang]
+      [nip, nama, hashedPassword, id_bidang],
     );
 
     res.status(200).json({
@@ -41,7 +43,9 @@ const register = async (req, res) => {
 const login = async (req, res) => {
   try {
     const { nip, password } = req.body;
-    const result = await pool.query("SELECT * FROM users WHERE nip = $1", [nip]);
+    const result = await pool.query("SELECT * FROM users WHERE nip = $1", [
+      nip,
+    ]);
 
     if (result.rows.length === 0) {
       return res.status(400).json({ message: "NIP tidak ditemukan" });
@@ -49,21 +53,35 @@ const login = async (req, res) => {
 
     const user = result.rows[0];
 
-    if (user.status !== "approved") {
-      return res.status(403).json({
-        message: "Akun anda belum aktif, untuk mengaktifkan hubungi super admin",
-      });
-    }
-
     // Cek password
     const validPass = await bcrypt.compare(password, user.password);
     if (!validPass) {
       return res.status(400).json({ message: "Password salah" });
     }
+    const permissionResult = await pool.query(
+      `
+      SELECT p.code
+      FROM permissions p
+      JOIN user_permissions up ON p.id = up.permission_id
+      WHERE up.user_id = $1
+      `,
+      [user.id],
+    );
+
+    const permissions = permissionResult.rows.map((p) => p.code);
 
     // Ambil role dari database
     const userRole = user.role;
-    const token = jwt.sign({ id: user.id, nip: user.nip, nama: user.nama, role: userRole, id_bidang: user.id_bidang, status: user.status }, process.env.JWT_SECRET, { expiresIn: "3d" });
+    const token = jwt.sign(
+      {
+        id: user.id,
+        nip: user.nip,
+        nama: user.nama,
+        role: userRole,
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "3d" },
+    );
 
     res.status(200).json({
       message: "Login berhasil",
@@ -73,9 +91,8 @@ const login = async (req, res) => {
         nip: user.nip,
         nama: user.nama,
         role: user.role,
-        id_bidang: user.id_bidang,
-        status: user.status,
       },
+      permissions,
     });
   } catch (error) {
     console.error(error);
@@ -83,4 +100,63 @@ const login = async (req, res) => {
   }
 };
 
-export { login, register };
+const createUser = async (req, res) => {
+  const { nip, nama, password, role, permissions } = req.body;
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const userResult = await client.query(
+      `
+      INSERT INTO users (nip, nama, password, role)
+      VALUES ($1, $2, $3, $4)
+      RETURNING id
+      `,
+      [nip, nama, hashedPassword, role || "user"],
+    );
+
+    const userId = userResult.rows[0].id;
+
+    let permissionResult = { rows: [] };
+    if (Array.isArray(permissions) && permissions.length > 0) {
+      permissionResult = await client.query(
+        `
+        SELECT id FROM permissions
+        WHERE code = ANY($1::text[])
+        `,
+        [permissions],
+      );
+    }
+
+    for (const row of permissionResult.rows) {
+      await client.query(
+        `
+        INSERT INTO user_permissions (user_id, permission_id)
+        VALUES ($1, $2)
+        `,
+        [userId, row.id],
+      );
+    }
+
+    await client.query("COMMIT");
+
+    res.status(201).json({
+      message: "User berhasil dibuat",
+      userId,
+    });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    if (error && error.code === "23505") {
+      return res.status(400).json({ message: "NIP sudah terdaftar" });
+    }
+    res.status(500).json({ message: "Gagal membuat user" });
+  } finally {
+    client.release();
+  }
+};
+
+export { login, register, createUser };

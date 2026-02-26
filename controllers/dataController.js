@@ -537,17 +537,13 @@ const insertKegiatan = async (req, res) => {
 
     const {
       nama_kegiatan,
-      tempat_pelaksanaan,
-      sasaran_peserta,
-      total_peserta,
-      tanggal_pelaksanaan,
-      jenjang_peserta,
-      pendidikan_terakhir,
       tanggal_mulai,
       tanggal_selesai,
       penanggung_jawab,
       tim,
       tahun,
+      sasaran_peserta,
+      total_peserta,
     } = req.body;
 
     const parsedSasaran = parseInt(sasaran_peserta);
@@ -561,22 +557,19 @@ const insertKegiatan = async (req, res) => {
 
     const result = await pool.query(
       `INSERT INTO public.kegiatan
-       (users_id, nama_kegiatan, tempat_pelaksanaan, sasaran_peserta, total_peserta, tanggal_mulai, tanggal_selesai, jenjang_peserta, pendidikan_terakhir, penanggung_jawab, tim, tahun)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+       (users_id, nama_kegiatan, tanggal_mulai, tanggal_selesai, penanggung_jawab, tim, tahun, sasaran_peserta, total_peserta)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
        RETURNING *`,
       [
         users_id,
         nama_kegiatan,
-        tempat_pelaksanaan,
-        parsedSasaran,
-        parsedTotal,
         tanggal_mulai,
         tanggal_selesai,
-        jenjang_peserta,
-        pendidikan_terakhir,
         penanggung_jawab,
         tim,
         tahun,
+        parsedSasaran,
+        parsedTotal,
       ],
     );
 
@@ -605,6 +598,8 @@ const getAllKegiatan = async (req, res) => {
         k.penanggung_jawab,
         k.tim,
         k.tahun,
+        k.sasaran_peserta,
+        k.total_peserta,
         k.created_at,
         u.nama AS created_by
       FROM public.kegiatan k
@@ -653,6 +648,8 @@ const getKegiatanById = async (req, res) => {
         k.penanggung_jawab,
         k.tim,
         k.tahun,
+        k.sasaran_peserta,
+        k.total_peserta,
         k.created_at,
         u.nama AS created_by
       FROM public.kegiatan k
@@ -689,6 +686,8 @@ const searchKegiatanByName = async (req, res) => {
         k.penanggung_jawab,
         k.tim,
         k.tahun,
+        k.sasaran_peserta,
+        k.total_peserta,
         k.created_at,
         u.nama AS created_by
       FROM public.kegiatan k
