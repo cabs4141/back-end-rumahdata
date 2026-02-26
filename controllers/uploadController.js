@@ -356,47 +356,61 @@ const uploadPeserta = async (req, res) => {
        1. DETEKSI CSV / CONVERT XLSX
     ========================= */
     if (ext === ".xlsx") {
-      const workbook = new ExcelJS.stream.xlsx.WorkbookReader(filePath);
-      const csv = fs.createWriteStream(tempCsv);
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(filePath);
 
-      for await (const sheet of workbook) {
-        let headers = [];
-        for await (const row of sheet) {
-          if (row.number === 1) {
-            headers = row.values.slice(1).map((h) =>
-              String(h || "")
-                .trim()
-                .toLowerCase(),
-            );
-            csv.write(headers.join(",") + "\n");
-            continue;
+    const sheet = workbook.worksheets[0];
+    const csv = fs.createWriteStream(tempCsv);
+
+    // Ambil header (baris pertama)
+    const headerRow = sheet.getRow(1);
+    const headers = headerRow.values
+      .slice(1)
+      .map((h) => String(h || "").trim().toLowerCase());
+
+    csv.write(headers.join(",") + "\n");
+
+    // Loop semua baris
+    sheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return; // skip header
+
+      const line = headers
+        .map((_, i) => {
+          const rawValue = row.getCell(i + 1).value;
+          let cell = "";
+
+          if (rawValue === null || rawValue === undefined) {
+            cell = "";
+          } else if (typeof rawValue === "object") {
+            cell =
+              rawValue.text ||
+              rawValue.richText?.map((rt) => rt.text).join("") ||
+              "";
+          } else {
+            cell = rawValue;
           }
 
-          const line = headers
-            .map((_, i) => {
-              const cell = row.getCell(i + 1).value ?? "";
-              return `"${String(cell).replace(/"/g, '""').trim()}"`;
-            })
-            .join(",");
+          return `"${String(cell).replace(/"/g, '""').trim()}"`;
+        })
+        .join(",");
 
-          csv.write(line + "\n");
+      csv.write(line + "\n");
+    });
+
+    csv.end();
+    await waitFinish(csv);
+      } else {
+        // Jika file asli CSV, intip baris pertamanya untuk cek delimiter
+        const rl = readline.createInterface({
+          input: fs.createReadStream(filePath),
+        });
+        for await (const line of rl) {
+          if (line.includes(";")) {
+            delimiter = ";";
+          }
+          break; // Cukup baca baris pertama lalu hentikan loop
         }
-        break;
       }
-      csv.end();
-      await waitFinish(csv);
-    } else {
-      // Jika file asli CSV, intip baris pertamanya untuk cek delimiter
-      const rl = readline.createInterface({
-        input: fs.createReadStream(filePath),
-      });
-      for await (const line of rl) {
-        if (line.includes(";")) {
-          delimiter = ";";
-        }
-        break; // Cukup baca baris pertama lalu hentikan loop
-      }
-    }
 
     /* =========================
        2. COPY → STAGING TABLE
@@ -406,14 +420,20 @@ const uploadPeserta = async (req, res) => {
     await client.query(`
       DROP TABLE IF EXISTS peserta_staging;
       CREATE TEMP TABLE peserta_staging (
-        nama text, kabupaten text, instansi text, jabatan text, alamat text
+        nama text,
+        kabupaten text,
+        instansi text,
+        jabatan text,
+        alamat text,
+        jenjang text,
+        peran text
       )
     `);
 
     // Masukkan delimiter dinamis ke perintah COPY
     const copyStream = client.query(
       copyFrom(`
-        COPY peserta_staging (nama, kabupaten, instansi, jabatan, alamat)
+        COPY peserta_staging (nama, kabupaten, instansi, jabatan, alamat, jenjang, peran)
         FROM STDIN WITH (FORMAT csv, HEADER true, ENCODING 'UTF8', DELIMITER '${delimiter}')
       `),
     );
@@ -425,9 +445,26 @@ const uploadPeserta = async (req, res) => {
        3. INSERT KE TABEL UTAMA
     ========================= */
     await client.query(
-      `INSERT INTO peserta (nama, kabupaten, instansi, jabatan, alamat, kegiatan_id)
-       SELECT TRIM(nama), TRIM(kabupaten), TRIM(instansi), TRIM(jabatan), TRIM(alamat), $1 
-       FROM peserta_staging`,
+      `INSERT INTO peserta (
+        nama,
+        kabupaten,
+        instansi,
+        jabatan,
+        alamat,
+        jenjang,
+        peran,
+        kegiatan_id
+      )
+      SELECT
+        TRIM(nama),
+        TRIM(kabupaten),
+        TRIM(instansi),
+        TRIM(jabatan),
+        TRIM(alamat),
+        TRIM(jenjang),
+        TRIM(peran),
+        $1
+      FROM peserta_staging`,
       [kegiatan_id],
     );
 
