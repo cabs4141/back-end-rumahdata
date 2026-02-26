@@ -443,18 +443,28 @@ const getAllPPG = async (req, res) => {
     const totalData = parseInt(countResult.rows[0].count);
     const totalPages = Math.ceil(totalData / limit);
 
+    const cleanData = dataResult.rows.map((row) => {
+      const obj = {};
+      for (const key in row) {
+        obj[key] = row[key] ?? "";
+      }
+      return obj;
+    });
+
     res.json({
       page,
       limit,
       totalData,
       totalPages,
-      data: dataResult.rows,
+      data: cleanData,
     });
+
   } catch (err) {
     console.error("PPG ERROR:", err);
     res.status(500).json({ message: "Gagal memproses data PPG" });
   }
 };
+
 
 const searchPPG = async (req, res) => {
   try {

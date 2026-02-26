@@ -459,17 +459,8 @@ const uploadPpg = async (req, res) => {
 
   if (!filePath)
     return res.status(400).json({ message: "File wajib diupload" });
+
   const filename = req.file.originalname;
-  const yearMatch = filename.match(/(20\d{2})/);
-
-  if (!yearMatch) {
-    return res.status(400).json({
-      message: "Nama file harus mengandung tahun. contoh: ppg_2025.xlsx",
-    });
-  }
-
-  const tahun = parseInt(yearMatch[1]);
-
   const ext = path.extname(filename).toLowerCase();
   const client = await pool.connect();
   const tempCsv = ext === ".xlsx" ? filePath + ".csv" : filePath;
@@ -495,11 +486,23 @@ const uploadPpg = async (req, res) => {
           }
 
           const line = headers
-            .map((_, i) => {
-              const cell = row.getCell(i + 1).value ?? "";
-              return `"${String(cell).replace(/"/g, '""')}"`;
-            })
-            .join(",");
+  .map((_, i) => {
+    let cell = row.getCell(i + 1).value;
+
+    // handle object dari exceljs
+    if (typeof cell === "object" && cell !== null) {
+      cell = cell.text || cell.result || null;
+    }
+
+    // ✅ kosong → NULL (BUKAN "")
+    if (cell === null || cell === undefined || cell === "") {
+      return "";
+    }
+
+    return `"${String(cell).replace(/"/g, '""')}"`;
+  })
+  .join(",");
+
 
           csv.write(line + "\n");
         }
@@ -511,32 +514,12 @@ const uploadPpg = async (req, res) => {
     }
 
     await client.query("BEGIN");
+
     await client.query(`
-      CREATE TEMP TABLE ppg_staging AS
-      SELECT
-        no,
-        nama_lengkap,
-        no_ukg,
-        no_hp,
-        nama_sekolah,
-        npsn_sekolah,
-        jenjang_sekolah,
-        provinsi_sekolah,
-        kota_kab_sekolah,
-        status_kesediaan,
-        waktu_isi_kesediaan,
-        kode_bs_ppg,
-        bidang_studi_ppg,
-        lptk,
-        status_plotting,
-        alasan,
-        status_konfirmasi_email,
-        waktu_konfirmasi_email,
-        email_konfirmasi,
-        tahap
-      FROM ppg
-      WHERE false;
+      CREATE TEMP TABLE ppg_staging
+      (LIKE ppg INCLUDING DEFAULTS)
     `);
+
     const copyStream = client.query(
       copyFrom(`
         COPY ppg_staging
@@ -548,39 +531,11 @@ const uploadPpg = async (req, res) => {
     fs.createReadStream(tempCsv).pipe(copyStream);
     await waitFinish(copyStream);
 
-    await client.query(
-      `
-      INSERT INTO ppg (
-        no,
-        nama_lengkap,
-        no_ukg,
-        no_hp,
-        nama_sekolah,
-        npsn_sekolah,
-        jenjang_sekolah,
-        provinsi_sekolah,
-        kota_kab_sekolah,
-        status_kesediaan,
-        waktu_isi_kesediaan,
-        kode_bs_ppg,
-        bidang_studi_ppg,
-        lptk,
-        status_plotting,
-        alasan,
-        status_konfirmasi_email,
-        waktu_konfirmasi_email,
-        email_konfirmasi,
-        tahap,
-        tahun
-      )
-      SELECT
-        s.*,
-        $1 AS tahun
-      FROM (
-        SELECT DISTINCT ON (no_ukg) *
-        FROM ppg_staging
-        ORDER BY no_ukg
-      ) s
+    await client.query(`
+      INSERT INTO ppg
+      SELECT DISTINCT ON (no_ukg, tahun) *
+      FROM ppg_staging
+      ORDER BY no_ukg, tahun
       ON CONFLICT (no_ukg, tahun)
       DO UPDATE SET
         nama_lengkap            = EXCLUDED.nama_lengkap,
@@ -601,27 +556,37 @@ const uploadPpg = async (req, res) => {
         waktu_konfirmasi_email  = EXCLUDED.waktu_konfirmasi_email,
         email_konfirmasi        = EXCLUDED.email_konfirmasi,
         tahap                   = EXCLUDED.tahap;
-      `,
-      [tahun]
-    );
+    `);
 
     await client.query("COMMIT");
 
-    fs.unlinkSync(filePath);
-    if (ext === ".xlsx") fs.unlinkSync(tempCsv);
+ 
+    fs.existsSync(filePath) && fs.unlinkSync(filePath);
+    ext === ".xlsx" &&
+      fs.existsSync(tempCsv) &&
+      fs.unlinkSync(tempCsv);
 
-    res.json({
-      message: `Upload berhasil untuk tahun ${tahun}`,
-    });
-
+    res.json({ message: "Upload data PPG berhasil" });
+      
   } catch (err) {
     await client.query("ROLLBACK");
-    console.error(err);
-    res.status(500).json({ message: err.message });
+    console.error("UPLOAD ERROR:", err);
+
+    fs.existsSync(filePath) && fs.unlinkSync(filePath);
+    ext === ".xlsx" &&
+      fs.existsSync(tempCsv) &&
+      fs.unlinkSync(tempCsv);
+
+    res.status(500).json({
+      message: "Gagal memproses file: " + err.message,
+    });
   } finally {
     client.release();
   }
 };
+
+
+
 
 const uploadKegiatan = async (req, res) => {
   const filePath = req.file?.path;
