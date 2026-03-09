@@ -4,7 +4,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 
-import { splitsData } from "../controllers/splitsdataController.js";
+import { splitsData } from "./splitsdata.controller.js";
 
 if (!fs.existsSync("uploads")) {
   fs.mkdirSync("uploads");

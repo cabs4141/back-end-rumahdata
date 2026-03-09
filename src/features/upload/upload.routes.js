@@ -1,8 +1,8 @@
 import express from "express";
 import fs from "fs";
 import multer from "multer";
-import { uploadPtk, uploadSekolah, uploadPeserta, uploadPpg, uploadKegiatan } from "../controllers/uploadController.js";
-import { authenticateToken } from "../src/middleware/authMiddleware.js";
+import { uploadPtk, uploadSekolah, uploadPeserta, uploadPpg, uploadKegiatan } from "./upload.controller.js";
+import { authenticateToken } from "../../middleware/authMiddleware.js";
 const router = express.Router();
 if (!fs.existsSync("uploads")) {
   fs.mkdirSync("uploads", { recursive: true });

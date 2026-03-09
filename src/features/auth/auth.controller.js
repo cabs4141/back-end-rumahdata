@@ -1,39 +1,49 @@
-import { pool } from "../src/db.js";
+import { pool } from "../../config/db.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
 const register = async (req, res) => {
   try {
-    const { nip, nama, password, id_bidang } = req.body;
+    const { nip, nama, password, role } = req.body;
 
-    // Validasi wajib diisi
+    // 1. Validasi input wajib
     if (!nip || !nama || !password) {
-      return res
-        .status(400)
-        .json({ error: "NIP, nama, dan password wajib diisi" });
+      return res.status(400).json({ error: "NIP, nama, dan password wajib diisi" });
     }
 
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // 2. Hash password sebelum masuk ke database
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-    // Insert ke database → sementara role = 'user'
-    const result = await pool.query(
-      `INSERT INTO users (nip, nama, password, role, id_bidang, status)
-      VALUES ($1, $2, $3, 'user', $4, 'pending')
-      RETURNING id, nip, nama, role, id_bidang, status`,
-      [nip, nama, hashedPassword, id_bidang],
-    );
+    // 3. Simpan ke database
+    // Kolom 'role' akan otomatis menjadi 'user' jika tidak dikirim (karena default 'user'::user_role)
+    // created_at dan updated_at juga otomatis terisi oleh CURRENT_TIMESTAMP
+    const query = `
+      INSERT INTO users (nip, nama, password, role)
+      VALUES ($1, $2, $3, $4)
+      RETURNING id, nip, nama, role, created_at
+    `;
 
-    res.status(200).json({
-      message: "Registrasi berhasil. Menunggu approval super admin",
+    // Jika role tidak dikirim di body, kita kirimkan undefined agar DB menggunakan DEFAULT value-nya
+    const values = [nip, nama, hashedPassword, role || "user"];
+
+    const result = await pool.query(query, values);
+
+    res.status(201).json({
+      message: "User berhasil didaftarkan",
       user: result.rows[0],
     });
   } catch (error) {
-    console.error(error);
+    console.error("Error Register:", error.message);
 
-    // NIP sudah terdaftar
+    // Cek jika NIP duplikat (asumsi ada UNIQUE constraint pada NIP)
     if (error.code === "23505") {
       return res.status(400).json({ error: "NIP sudah terdaftar" });
+    }
+
+    // Cek jika role yang dikirim tidak sesuai dengan enum 'user_role'
+    if (error.code === "22P02") {
+      return res.status(400).json({ error: "Role tidak valid" });
     }
 
     res.status(500).json({ error: "Terjadi kesalahan server" });
@@ -43,9 +53,7 @@ const register = async (req, res) => {
 const login = async (req, res) => {
   try {
     const { nip, password } = req.body;
-    const result = await pool.query("SELECT * FROM users WHERE nip = $1", [
-      nip,
-    ]);
+    const result = await pool.query("SELECT * FROM users WHERE nip = $1", [nip]);
 
     if (result.rows.length === 0) {
       return res.status(400).json({ message: "NIP tidak ditemukan" });

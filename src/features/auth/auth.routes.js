@@ -1,10 +1,10 @@
 import express from "express";
-import { register, login, createUser } from "../controllers/authController.js";
-import checkPermission from "../src/middleware/checkPermissionMiddleware.js";
+import { register, login, createUser } from "./auth.controller.js";
+import checkPermission from "../../middleware/checkPermissionMiddleware.js";
 import {
   authenticateToken,
   adminOnly,
-} from "../src/middleware/authMiddleware.js";
+} from "../../middleware/authMiddleware.js";
 
 const router = express.Router();
 

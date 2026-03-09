@@ -1,12 +1,17 @@
 import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
-import dataRoutes from "./routes/dataRoutes.js";
-import uploadRoutes from "./routes/uploadRoutes.js";
-import authRoutes from "./routes/authRoutes.js";
-import splitsdataRoutes from "./routes/splitsdataRoutes.js";
-import userRoutes from "./routes/userRoutes.js";
-import { connectDB } from "./src/db.js";
+import authRoutes from "./src/features/auth/auth.routes.js";
+import userRoutes from "./src/features/users/users.routes.js";
+import ptkRoutes from "./src/features/ptk/ptk.routes.js";
+import sekolahRoutes from "./src/features/sekolah/sekolah.routes.js";
+import pesertaRoutes from "./src/features/peserta/peserta.routes.js";
+import kegiatanRoutes from "./src/features/kegiatan/kegiatan.routes.js";
+import ppgRoutes from "./src/features/ppg/ppg.routes.js";
+import uploadRoutes from "./src/features/upload/upload.routes.js";
+import splitsdataRoutes from "./src/features/splitsdata/splitsdata.routes.js";
+import userTeamRoutes from "./src/features/user_team/user_team.routes.js";
+import { connectDB } from "./src/config/db.js";
 
 dotenv.config();
 const app = express();
@@ -15,11 +20,16 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 // routes
-app.use("/api", dataRoutes);
-app.use("/api", uploadRoutes);
 app.use("/api/auth", authRoutes);
-app.use("/api/splitsdata", splitsdataRoutes);
 app.use("/api", userRoutes);
+app.use("/api", ptkRoutes);
+app.use("/api", sekolahRoutes);
+app.use("/api", pesertaRoutes);
+app.use("/api", kegiatanRoutes);
+app.use("/api", ppgRoutes);
+app.use("/api", uploadRoutes);
+app.use("/api/splitsdata", splitsdataRoutes);
+app.use("/api", userTeamRoutes);
 // root endpoint
 app.get("/", (req, res) => {
   res.send("Server berjalan...");
