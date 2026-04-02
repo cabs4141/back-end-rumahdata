@@ -4,6 +4,8 @@ import { pool } from "../../config/db.js";
 import ExcelJS from "exceljs";
 import pgCopyStreams from "pg-copy-streams";
 import readline from "readline";
+import csvParser from "csv-parser";
+
 const { from: copyFrom } = pgCopyStreams;
 
 /* helper */
@@ -13,169 +15,273 @@ const waitFinish = (stream) =>
     stream.on("error", reject);
   });
 
-/* helper ambil value cell supaya tidak [object Object] */
-function extractValue(cell) {
-  if (!cell) return "";
+/* `processFileToCsv` reads XLSX or CSV, extracts valid columns matching `expectedCols`, and generates a clean CSV */
+const processFileToCsv = async (filePath, ext, expectedColumns, tempCsv) => {
+  const csvStream = fs.createWriteStream(tempCsv);
+  let validColumns = [];
 
-  const raw = cell.value;
+  if (ext === ".xlsx") {
+    const workbook = new ExcelJS.stream.xlsx.WorkbookReader(filePath);
+    let headerParsed = false;
+    let headerIndexes = [];
 
-  if (raw === null || raw === undefined) return "";
+    for await (const sheet of workbook) {
+      for await (const row of sheet) {
+        if (!headerParsed) {
+          const rawHeaders = row.values.slice(1).map((h) =>
+            String(h || "")
+              .trim()
+              .toLowerCase()
+              .replace(/\s+/g, "_"),
+          );
 
-  if (typeof raw === "object") {
-    if (raw.richText) {
-      return raw.richText.map((r) => r.text).join("");
+          rawHeaders.forEach((h, i) => {
+            if (expectedColumns.includes(h)) {
+              headerIndexes.push({ index: i + 1, colName: h });
+              validColumns.push(h);
+            }
+          });
+
+          if (validColumns.length === 0)
+            throw new Error("Tidak ada kolom yang valid pada file.");
+
+          csvStream.write(validColumns.join(",") + "\n");
+          headerParsed = true;
+          continue;
+        }
+
+        const line = headerIndexes
+          .map(({ index }) => {
+            let cell = row.getCell(index).value;
+            let cellStr = "";
+
+            if (cell === null || cell === undefined || cell === "") {
+              cellStr = "";
+            } else if (typeof cell === "object") {
+              cellStr =
+                cell.text ||
+                cell.result ||
+                cell.richText?.map((rt) => rt.text).join("") ||
+                "";
+            } else {
+              cellStr = String(cell);
+            }
+
+            return `"${cellStr.replace(/"/g, '""').trim()}"`;
+          })
+          .join(",");
+
+        csvStream.write(line + "\n");
+      }
+      break;
     }
-    if (raw.text) {
-      return raw.text;
-    }
-    if (raw.result) {
-      return raw.result;
-    }
-    return String(raw);
+    csvStream.end();
+    await waitFinish(csvStream);
+    return validColumns;
+  } else {
+    // Determine delimiter
+    let delimiter = ",";
+    const headerLine = await new Promise((resolve) => {
+      const rl = readline.createInterface({
+        input: fs.createReadStream(filePath),
+      });
+      rl.on("line", (line) => {
+        rl.close();
+        resolve(line);
+      });
+    });
+    if (headerLine && headerLine.includes(";")) delimiter = ";";
+
+    return new Promise((resolve, reject) => {
+      let headerMapping = [];
+
+      fs.createReadStream(filePath)
+        .pipe(csvParser({ separator: delimiter }))
+        .on("headers", (headers) => {
+          headers.forEach((h) => {
+            const cleanH = String(h || "")
+              .trim()
+              .toLowerCase()
+              .replace(/\s+/g, "_");
+            if (expectedColumns.includes(cleanH)) {
+              headerMapping.push({ csvKey: h, colName: cleanH });
+              validColumns.push(cleanH);
+            }
+          });
+
+          if (validColumns.length === 0) {
+            return reject(new Error("Tidak ada kolom valid pada file"));
+          }
+          csvStream.write(validColumns.join(",") + "\n");
+        })
+        .on("data", (row) => {
+          const line = headerMapping
+            .map(({ csvKey }) => {
+              const cell = row[csvKey];
+              const cellStr =
+                cell === null || cell === undefined ? "" : String(cell);
+              return `"${cellStr.replace(/"/g, '""').trim()}"`;
+            })
+            .join(",");
+          csvStream.write(line + "\n");
+        })
+        .on("end", () => {
+          csvStream.end();
+          resolve(validColumns);
+        })
+        .on("error", reject);
+    });
   }
-
-  return String(raw);
-}
+};
 
 const uploadSekolah = async (req, res) => {
   const filePath = req.file?.path;
-  if (!filePath) {
+  if (!filePath)
     return res.status(400).json({ message: "File wajib diupload" });
-  }
 
   const ext = path.extname(req.file.originalname).toLowerCase();
   const client = await pool.connect();
-  const tempCsv = ext === ".xlsx" ? filePath + ".csv" : filePath;
+  const tempCsv = filePath + ".formatted.csv";
+
+  const expectedCols = [
+    "sekolah_id",
+    "semester",
+    "nama",
+    "nama_nomenklatur",
+    "nss",
+    "npsn",
+    "bentuk_pendidikan",
+    "jenjang",
+    "alamat_jalan",
+    "rt",
+    "rw",
+    "nama_dusun",
+    "kode_desa_kelurahan",
+    "desa_kelurahan",
+    "kode_kecamatan",
+    "kecamatan",
+    "kode_kabupaten",
+    "kabupaten",
+    "kode_provinsi",
+    "provinsi",
+    "kode_pos",
+    "lintang",
+    "bujur",
+    "nomor_telepon",
+    "nomor_fax",
+    "email",
+    "website",
+    "kebutuhan_khusus",
+    "status_sekolah",
+    "sk_pendirian_sekolah",
+    "tanggal_sk_pendirian",
+    "status_kepemilikan",
+    "yayasan",
+    "sk_izin_operasional",
+    "tanggal_sk_izin_operasional",
+    "no_rekening",
+    "nama_bank",
+    "cabang_kcp_unit",
+    "rekening_atas_nama",
+    "mbs",
+    "kode_registrasi",
+    "npwp",
+    "nm_wp",
+    "keaktifan",
+    "daya_listrik",
+    "kontinuitas_listrik",
+    "jarak_listrik",
+    "wilayah_terpencil",
+    "wilayah_perbatasan",
+    "wilayah_transmigrasi",
+    "wilayah_adat_terpencil",
+    "wilayah_bencana_alam",
+    "wilayah_bencana_sosial",
+    "partisipasi_bos",
+    "waktu_penyelenggaraan",
+    "sumber_listrik",
+    "sertifikasi_iso",
+    "akses_internet",
+    "akses_internet_2",
+    "akreditasi",
+    "akreditasi_sp_tmt",
+    "akreditasi_sp_sk",
+    "luas_tanah_milik",
+    "luas_tanah_bukan_milik",
+    "angkatan_psp",
+    "internet_jenis_layanan",
+    "internet_jenis_koneksi",
+    "internet_provider",
+    "internet_bandwidth",
+    "internet_bandwidth_up",
+    "internet_bandwidth_down",
+    "internet_latency",
+    "listrik_sumber",
+    "listrik_daya",
+    "listrik_kontinuitas",
+    "listrik_id_pelanggan",
+    "listrik_nomor_meter",
+    "listrik_jenis_meter",
+    "listrik_status_sambungan",
+    "listrik_utama",
+  ];
 
   try {
-    /* =========================
-       1. XLSX → CSV (STREAM)
-    ========================= */
-    if (ext === ".xlsx") {
-      const workbook = new ExcelJS.stream.xlsx.WorkbookReader(filePath);
-      const csv = fs.createWriteStream(tempCsv);
+    const validCols = await processFileToCsv(
+      filePath,
+      ext,
+      expectedCols,
+      tempCsv,
+    );
+    if (!validCols.includes("sekolah_id"))
+      throw new Error("Kolom sekolah_id wajib ada pada file");
 
-      for await (const sheet of workbook) {
-        let headers = [];
-
-        for await (const row of sheet) {
-          if (row.number === 1) {
-            headers = row.values.slice(1);
-            csv.write(headers.join(",") + "\n");
-            continue;
-          }
-
-          const line = headers
-            .map((_, i) => {
-              const cell = row.getCell(i + 1).value ?? "";
-              return `"${String(cell).replace(/"/g, '""')}"`;
-            })
-            .join(",");
-
-          csv.write(line + "\n");
-        }
-        break;
-      }
-
-      csv.end();
-      await waitFinish(csv);
-    }
-
-    /* =========================
-       2. COPY → STAGING TABLE
-    ========================= */
     await client.query("BEGIN");
-
     await client.query(`
       DROP TABLE IF EXISTS data_sekolah_staging;
-      CREATE TEMP TABLE data_sekolah_staging
-      (LIKE data_sekolah INCLUDING DEFAULTS)
+      CREATE TEMP TABLE data_sekolah_staging (LIKE data_sekolah INCLUDING DEFAULTS)
     `);
 
     const copyStream = client.query(
       copyFrom(`
-        COPY data_sekolah_staging
-        FROM STDIN
-        WITH (FORMAT csv, HEADER true, ENCODING 'UTF8')
+        COPY data_sekolah_staging (${validCols.join(",")})
+        FROM STDIN WITH (FORMAT csv, HEADER true, ENCODING 'UTF8')
       `),
     );
 
     fs.createReadStream(tempCsv).pipe(copyStream);
     await waitFinish(copyStream);
 
-    /* =========================
-       3. UPSERT KE data_sekolah
-    ========================= */
-    await client.query(`
-      INSERT INTO data_sekolah
-      SELECT DISTINCT ON (sekolah_id) *
-      FROM data_sekolah_staging
-      ORDER BY sekolah_id
-      ON CONFLICT (sekolah_id)
-      DO UPDATE SET
-        nama                          = EXCLUDED.nama,
-        npsn                          = EXCLUDED.npsn,
-        bentuk_pendidikan             = EXCLUDED.bentuk_pendidikan,
-        jenjang                       = EXCLUDED.jenjang,
-        alamat_jalan                  = EXCLUDED.alamat_jalan,
-        kode_desa_kelurahan           = EXCLUDED.kode_desa_kelurahan,
-        desa_kelurahan                = EXCLUDED.desa_kelurahan,
-        kode_kecamatan                = EXCLUDED.kode_kecamatan,
-        kecamatan                     = EXCLUDED.kecamatan,
-        kode_kabupaten                = EXCLUDED.kode_kabupaten,
-        kabupaten                     = EXCLUDED.kabupaten,
-        kode_provinsi                 = EXCLUDED.kode_provinsi,
-        provinsi                      = EXCLUDED.provinsi,
-        kode_pos                      = EXCLUDED.kode_pos,
-        email                         = EXCLUDED.email,
-        kebutuhan_khusus              = EXCLUDED.kebutuhan_khusus,
-        status_sekolah                = EXCLUDED.status_sekolah,
-        sk_pendirian_sekolah          = EXCLUDED.sk_pendirian_sekolah,
-        tanggal_sk_pendirian          = EXCLUDED.tanggal_sk_pendirian,
-        status_kepemilikan            = EXCLUDED.status_kepemilikan,
-        yayasan                       = EXCLUDED.yayasan,
-        sk_izin_operasional           = EXCLUDED.sk_izin_operasional,
-        tanggal_sk_izin_operasional   = EXCLUDED.tanggal_sk_izin_operasional,
-        rekening_atas_nama            = EXCLUDED.rekening_atas_nama,
-        mbs                           = EXCLUDED.mbs,
-        kode_registrasi               = EXCLUDED.kode_registrasi,
-        npwp                          = EXCLUDED.npwp,
-        nm_wp                         = EXCLUDED.nm_wp,
-        keaktifan                     = EXCLUDED.keaktifan,
-        wilayah_terpencil             = EXCLUDED.wilayah_terpencil,
-        wilayah_perbatasan            = EXCLUDED.wilayah_perbatasan,
-        wilayah_transmigrasi          = EXCLUDED.wilayah_transmigrasi,
-        wilayah_adat_terpencil        = EXCLUDED.wilayah_adat_terpencil,
-        wilayah_bencana_alam          = EXCLUDED.wilayah_bencana_alam,
-        wilayah_bencana_sosial        = EXCLUDED.wilayah_bencana_sosial,
-        partisipasi_bos               = EXCLUDED.partisipasi_bos,
-        akses_internet                = EXCLUDED.akses_internet,
-        akses_internet_2              = EXCLUDED.akses_internet_2,
-        akreditasi                    = EXCLUDED.akreditasi,
-        akreditasi_sp_tmt             = EXCLUDED.akreditasi_sp_tmt,
-        akreditasi_sp_sk              = EXCLUDED.akreditasi_sp_sk,
-        luas_tanah_milik              = EXCLUDED.luas_tanah_milik,
-        luas_tanah_bukan_milik        = EXCLUDED.luas_tanah_bukan_milik,
-        angkatan_psp                  = EXCLUDED.angkatan_psp
-    `);
+    let updateSet = validCols
+      .filter((c) => c !== "sekolah_id")
+      .map((c) => `${c} = EXCLUDED.${c}`)
+      .join(",\n        ");
+    if (updateSet) {
+      await client.query(`
+         INSERT INTO data_sekolah (${validCols.join(",")})
+         SELECT DISTINCT ON (sekolah_id) ${validCols.join(",")} FROM data_sekolah_staging
+         ORDER BY sekolah_id
+         ON CONFLICT (sekolah_id)
+         DO UPDATE SET ${updateSet}
+       `);
+    } else {
+      await client.query(`
+         INSERT INTO data_sekolah (${validCols.join(",")})
+         SELECT DISTINCT ON (sekolah_id) ${validCols.join(",")} FROM data_sekolah_staging
+         ORDER BY sekolah_id
+         ON CONFLICT (sekolah_id) DO NOTHING
+       `);
+    }
 
     await client.query("COMMIT");
-
-    /* =========================
-       4. CLEAN FILE
-    ========================= */
     fs.existsSync(filePath) && fs.unlinkSync(filePath);
-    ext === ".xlsx" && fs.existsSync(tempCsv) && fs.unlinkSync(tempCsv);
+    fs.existsSync(tempCsv) && fs.unlinkSync(tempCsv);
 
-    res.json({
-      message: "Upload data sekolah berhasil (COPY + UPSERT)",
-    });
+    res.json({ message: "Upload data sekolah berhasil (COPY + UPSERT)" });
   } catch (err) {
     await client.query("ROLLBACK");
-
     fs.existsSync(filePath) && fs.unlinkSync(filePath);
-    ext === ".xlsx" && fs.existsSync(tempCsv) && fs.unlinkSync(tempCsv);
-
+    fs.existsSync(tempCsv) && fs.unlinkSync(tempCsv);
     console.error(err);
     res.status(500).json({ message: err.message });
   } finally {
@@ -185,146 +291,196 @@ const uploadSekolah = async (req, res) => {
 
 const uploadPtk = async (req, res) => {
   const filePath = req.file?.path;
-  if (!filePath) {
+  if (!filePath)
     return res.status(400).json({ message: "File wajib diupload" });
-  }
 
   const ext = path.extname(req.file.originalname).toLowerCase();
   const client = await pool.connect();
-  const tempCsv = ext === ".xlsx" ? filePath + ".csv" : filePath;
+  const tempCsv = filePath + ".formatted.csv";
+
+  const expectedCols = [
+    "ptk_id",
+    "semester",
+    "sekolah_id",
+    "ptk_terdaftar_id",
+    "nama",
+    "nip",
+    "jenis_kelamin",
+    "tempat_lahir",
+    "tanggal_lahir",
+    "nik",
+    "no_kk",
+    "niy_nigk",
+    "nuptk",
+    "nuks",
+    "status_kepegawaian",
+    "jenis_ptk",
+    "pengawas_bidang_studi",
+    "agama",
+    "kewarganegaraan",
+    "alamat_jalan",
+    "rt",
+    "rw",
+    "nama_dusun",
+    "kode_desa_kelurahan",
+    "desa_kelurahan",
+    "kode_kecamatan",
+    "kecamatan",
+    "kode_kabupaten",
+    "kabupaten",
+    "kode_provinsi",
+    "provinsi",
+    "kode_pos",
+    "lintang",
+    "bujur",
+    "no_telepon_rumah",
+    "email",
+    "status_keaktifan",
+    "sk_cpns",
+    "tgl_cpns",
+    "sk_pengangkatan",
+    "tmt_pengangkatan",
+    "lembaga_pengangkat",
+    "pangkat_golongan",
+    "keahlian_laboratorium",
+    "sumber_gaji",
+    "nama_ibu_kandung",
+    "status_perkawinan",
+    "nama_suami_istri",
+    "nip_suami_istri",
+    "pekerjaan_suami_istri",
+    "tmt_pns",
+    "sudah_lisensi_kepala_sekolah",
+    "jumlah_sekolah_binaan",
+    "pernah_diklat_kepengawasan",
+    "nm_wp",
+    "status_data",
+    "karpeg",
+    "karpas",
+    "mampu_handle_kk",
+    "keahlian_braille",
+    "keahlian_bhs_isyarat",
+    "npwp",
+    "bank",
+    "rekening_bank",
+    "rekening_atas_nama",
+    "tahun_ajaran",
+    "nomor_surat_tugas",
+    "tanggal_surat_tugas",
+    "tmt_tugas",
+    "ptk_induk",
+    "jenis_keluar",
+    "tgl_ptk_keluar",
+    "riwayat_kepangkatan_pangkat_golongan",
+    "riwayat_kepangkatan_nomor_sk",
+    "riwayat_kepangkatan_tanggal_sk",
+    "riwayat_kepangkatan_tmt_pangkat",
+    "riwayat_kepangkatan_masa_kerja_gol_tahun",
+    "riwayat_kepangkatan_masa_kerja_gol_bulan",
+    "riwayat_gaji_berkala_pangkat_golongan",
+    "riwayat_gaji_berkala_nomor_sk",
+    "riwayat_gaji_berkala_tanggal_sk",
+    "riwayat_gaji_berkala_tmt_kgb",
+    "riwayat_gaji_berkala_masa_kerja_tahun",
+    "riwayat_gaji_berkala_masa_kerja_bulan",
+    "riwayat_gaji_berkala_gaji_pokok",
+    "inpassing_pangkat_golongan",
+    "inpassing_no_sk_inpassing",
+    "inpassing_tgl_sk_inpassing",
+    "inpassing_tmt_inpassing",
+    "inpassing_angka_kredit",
+    "inpassing_masa_kerja_tahun",
+    "inpassing_masa_kerja_bulan",
+    "riwayat_sertifikasi_bidang_studi",
+    "riwayat_sertifikasi_jenis_sertifikasi",
+    "riwayat_sertifikasi_tahun_sertifikasi",
+    "riwayat_sertifikasi_nomor_sertifikat",
+    "riwayat_sertifikasi_nrg",
+    "riwayat_sertifikasi_nomor_peserta",
+    "riwayat_pendidikan_formal_bidang_studi",
+    "riwayat_pendidikan_formal_jenjang_pendidikan",
+    "riwayat_pendidikan_formal_gelar_akademik",
+    "riwayat_pendidikan_formal_satuan_pendidikan_formal",
+    "riwayat_pendidikan_formal_fakultas",
+    "riwayat_pendidikan_formal_kependidikan",
+    "riwayat_pendidikan_formal_tahun_masuk",
+    "riwayat_pendidikan_formal_tahun_lulus",
+    "riwayat_pendidikan_formal_nim",
+    "riwayat_pendidikan_formal_status_kuliah",
+    "riwayat_pendidikan_formal_semester",
+    "riwayat_pendidikan_formal_ipk",
+    "jumlah_anak",
+    "tugas_tambahan_jabatan_ptk",
+    "tugas_tambahan_sekolah",
+    "tugas_tambahan_jumlah_jam",
+    "tugas_tambahan_nomor_sk",
+    "tugas_tambahan_tmt_tambahan",
+    "tugas_tambahan_tst_tambahan",
+    "riwayat_struktural_jabatan_ptk",
+    "riwayat_struktural_sk_struktural",
+    "riwayat_struktural_tmt_jabatan",
+    "riwayat_fungsional_jabatan_fungsional",
+    "riwayat_fungsional_sk_jabfung",
+    "riwayat_fungsional_tmt_jabatan",
+    "jabatan_ptk",
+  ];
 
   try {
-    /* =========================
-       1. XLSX → CSV (STREAM)
-    ========================= */
-    if (ext === ".xlsx") {
-      const workbook = new ExcelJS.stream.xlsx.WorkbookReader(filePath);
-      const csv = fs.createWriteStream(tempCsv);
+    const validCols = await processFileToCsv(
+      filePath,
+      ext,
+      expectedCols,
+      tempCsv,
+    );
+    if (!validCols.includes("ptk_id"))
+      throw new Error("Kolom ptk_id wajib ada pada file");
 
-      for await (const sheet of workbook) {
-        let headers = [];
-
-        for await (const row of sheet) {
-          if (row.number === 1) {
-            headers = row.values.slice(1);
-            csv.write(headers.join(",") + "\n");
-            continue;
-          }
-
-          const line = headers
-            .map((_, i) => {
-              const cell = row.getCell(i + 1).value ?? "";
-              return `"${String(cell).replace(/"/g, '""')}"`;
-            })
-            .join(",");
-
-          csv.write(line + "\n");
-        }
-        break;
-      }
-
-      csv.end();
-      await waitFinish(csv);
-    }
-
-    /* =========================
-       2. COPY → STAGING
-    ========================= */
     await client.query("BEGIN");
-
     await client.query(`
-      CREATE TEMP TABLE ptk_staging
-      (LIKE public.ptk INCLUDING DEFAULTS)
+      DROP TABLE IF EXISTS ptk_staging;
+      CREATE TEMP TABLE ptk_staging (LIKE public.ptk INCLUDING DEFAULTS)
     `);
 
     const copyStream = client.query(
       copyFrom(`
-        COPY ptk_staging
-        FROM STDIN
-        WITH (FORMAT csv, HEADER true, ENCODING 'UTF8')
+        COPY ptk_staging (${validCols.join(",")})
+        FROM STDIN WITH (FORMAT csv, HEADER true, ENCODING 'UTF8')
       `),
     );
 
     fs.createReadStream(tempCsv).pipe(copyStream);
     await waitFinish(copyStream);
 
-    /* =========================
-       3. UPSERT KE TABEL PTK
-    ========================= */
-    await client.query(`
-      INSERT INTO public.ptk
-      SELECT DISTINCT ON (ptk_id) *
-      FROM ptk_staging
-      ORDER BY ptk_id
-      ON CONFLICT (ptk_id)
-      DO UPDATE SET
-        semester                 = EXCLUDED.semester,
-        sekolah_id               = EXCLUDED.sekolah_id,
-        ptk_terdaftar_id         = EXCLUDED.ptk_terdaftar_id,
-        nama                     = EXCLUDED.nama,
-        nip                      = EXCLUDED.nip,
-        jenis_kelamin            = EXCLUDED.jenis_kelamin,
-        tempat_lahir             = EXCLUDED.tempat_lahir,
-        tanggal_lahir            = EXCLUDED.tanggal_lahir,
-        nik                      = EXCLUDED.nik,
-        no_kk                    = EXCLUDED.no_kk,
-        niy_nigk                 = EXCLUDED.niy_nigk,
-        status_kepegawaian       = EXCLUDED.status_kepegawaian,
-        jenis_ptk                = EXCLUDED.jenis_ptk,
-        pengawas_bidang_studi    = EXCLUDED.pengawas_bidang_studi,
-        agama                    = EXCLUDED.agama,
-        kewarganegaraan          = EXCLUDED.kewarganegaraan,
-        alamat_jalan             = EXCLUDED.alamat_jalan,
-        rt                       = EXCLUDED.rt,
-        rw                       = EXCLUDED.rw,
-        nama_dusun               = EXCLUDED.nama_dusun,
-        kode_desa_kelurahan      = EXCLUDED.kode_desa_kelurahan,
-        desa_kelurahan           = EXCLUDED.desa_kelurahan,
-        kode_kecamatan           = EXCLUDED.kode_kecamatan,
-        kecamatan                = EXCLUDED.kecamatan,
-        kode_kabupaten           = EXCLUDED.kode_kabupaten,
-        kabupaten                = EXCLUDED.kabupaten,
-        kode_provinsi            = EXCLUDED.kode_provinsi,
-        provinsi                 = EXCLUDED.provinsi,
-        kode_pos                 = EXCLUDED.kode_pos,
-        lintang                  = EXCLUDED.lintang,
-        bujur                    = EXCLUDED.bujur,
-        no_telepon_rumah         = EXCLUDED.no_telepon_rumah,
-        email                    = EXCLUDED.email,
-        status_keaktifan         = EXCLUDED.status_keaktifan,
-        sk_cpns                  = EXCLUDED.sk_cpns,
-        tgl_cpns                 = EXCLUDED.tgl_cpns,
-        sk_pengangkatan          = EXCLUDED.sk_pengangkatan,
-        tmt_pengangkatan         = EXCLUDED.tmt_pengangkatan,
-        lembaga_pengangkat       = EXCLUDED.lembaga_pengangkat,
-        pangkat_golongan         = EXCLUDED.pangkat_golongan,
-        sumber_gaji              = EXCLUDED.sumber_gaji,
-        nama_ibu_kandung         = EXCLUDED.nama_ibu_kandung,
-        status_perkawinan        = EXCLUDED.status_perkawinan,
-        npwp                     = EXCLUDED.npwp,
-        rekening_bank            = EXCLUDED.rekening_bank,
-        rekening_atas_nama       = EXCLUDED.rekening_atas_nama,
-        tahun_ajaran             = EXCLUDED.tahun_ajaran,
-        jabatan_ptk              = EXCLUDED.jabatan_ptk
-    `);
+    let updateSet = validCols
+      .filter((c) => c !== "ptk_id")
+      .map((c) => `${c} = EXCLUDED.${c}`)
+      .join(",\n        ");
+    if (updateSet) {
+      await client.query(`
+         INSERT INTO public.ptk (${validCols.join(",")})
+         SELECT DISTINCT ON (ptk_id) ${validCols.join(",")} FROM ptk_staging
+         ORDER BY ptk_id
+         ON CONFLICT (ptk_id)
+         DO UPDATE SET ${updateSet}
+       `);
+    } else {
+      await client.query(`
+         INSERT INTO public.ptk (${validCols.join(",")})
+         SELECT DISTINCT ON (ptk_id) ${validCols.join(",")} FROM ptk_staging
+         ORDER BY ptk_id
+         ON CONFLICT (ptk_id) DO NOTHING
+       `);
+    }
 
     await client.query("COMMIT");
-
-    /* =========================
-       4. CLEAN FILE
-    ========================= */
     fs.existsSync(filePath) && fs.unlinkSync(filePath);
-    ext === ".xlsx" && fs.existsSync(tempCsv) && fs.unlinkSync(tempCsv);
+    fs.existsSync(tempCsv) && fs.unlinkSync(tempCsv);
 
-    res.json({
-      message: "Upload PTK berhasil (COPY + UPSERT)",
-    });
+    res.json({ message: "Upload PTK berhasil (COPY + UPSERT)" });
   } catch (err) {
     await client.query("ROLLBACK");
-
     fs.existsSync(filePath) && fs.unlinkSync(filePath);
-    ext === ".xlsx" && fs.existsSync(tempCsv) && fs.unlinkSync(tempCsv);
-
+    fs.existsSync(tempCsv) && fs.unlinkSync(tempCsv);
     console.error(err);
     res.status(500).json({ message: err.message });
   } finally {
@@ -336,9 +492,8 @@ const uploadPeserta = async (req, res) => {
   const filePath = req.file?.path;
   const kegiatan_id = req.body.kegiatan_id;
 
-  if (!filePath) {
+  if (!filePath)
     return res.status(400).json({ message: "File wajib diupload" });
-  }
   if (!kegiatan_id) {
     fs.unlinkSync(filePath);
     return res.status(400).json({ message: "kegiatan_id wajib diisi" });
@@ -346,493 +501,254 @@ const uploadPeserta = async (req, res) => {
 
   const ext = path.extname(req.file.originalname).toLowerCase();
   const client = await pool.connect();
-  const tempCsv = ext === ".xlsx" ? filePath + ".csv" : filePath;
+  const tempCsv = filePath + ".formatted.csv";
 
-  // Siapkan variabel delimiter, default koma
-  let delimiter = ",";
+  const expectedCols = [
+    "nama",
+    "kabupaten",
+    "instansi",
+    "jabatan",
+    "alamat",
+    "jenjang",
+    "peran",
+  ];
 
   try {
-    /* =========================
-       1. DETEKSI CSV / CONVERT XLSX
-    ========================= */
-    if (ext === ".xlsx") {
-      const workbook = new ExcelJS.Workbook();
-      await workbook.xlsx.readFile(filePath);
+    const validCols = await processFileToCsv(
+      filePath,
+      ext,
+      expectedCols,
+      tempCsv,
+    );
 
-      const sheet = workbook.worksheets[0];
-      const csv = fs.createWriteStream(tempCsv);
-
-      // Ambil header (baris pertama)
-      const headerRow = sheet.getRow(1);
-      const headers = headerRow.values
-        .slice(1)
-        .map((h) => String(h || "").trim().toLowerCase());
-
-      csv.write(headers.join(",") + "\n");
-
-      // Loop semua baris
-      sheet.eachRow((row, rowNumber) => {
-        if (rowNumber === 1) return; // skip header
-
-        const line = headers
-          .map((_, i) => {
-            const rawValue = row.getCell(i + 1).value;
-            let cell = "";
-
-            if (rawValue === null || rawValue === undefined) {
-              cell = "";
-            } else if (typeof rawValue === "object") {
-              cell =
-                rawValue.text ||
-                rawValue.richText?.map((rt) => rt.text).join("") ||
-                "";
-            } else {
-              cell = rawValue;
-            }
-
-            return `"${String(cell).replace(/"/g, '""').trim()}"`;
-          })
-          .join(",");
-
-        csv.write(line + "\n");
-      });
-
-<<<<<<< HEAD:controllers/uploadController.js
-    csv.end();
-    await waitFinish(csv);
-      } else {
-        // Jika file asli CSV, intip baris pertamanya untuk cek delimiter
-        const rl = readline.createInterface({
-          input: fs.createReadStream(filePath),
-        });
-        for await (const line of rl) {
-  if (line.includes(";")) {
-    delimiter = ";";
-  } else if (line.includes("\t")) {
-    delimiter = "\t";
-  } else {
-    delimiter = ",";
-  }
-  break;
-}
-=======
-      csv.end();
-      await waitFinish(csv);
-    } else {
-      // Jika file asli CSV, intip baris pertamanya untuk cek delimiter
-      const rl = readline.createInterface({
-        input: fs.createReadStream(filePath),
-      });
-      for await (const line of rl) {
-        if (line.includes(";")) {
-          delimiter = ";";
-        }
-        break; // Cukup baca baris pertama lalu hentikan loop
->>>>>>> upstream/main:src/features/upload/upload.controller.js
-      }
-    }
-
-    /* =========================
-       2. COPY → STAGING TABLE
-    ========================= */
     await client.query("BEGIN");
-
     await client.query(`
       DROP TABLE IF EXISTS peserta_staging;
       CREATE TEMP TABLE peserta_staging (
-        nama text,
-        kabupaten text,
-        instansi text,
-        jabatan text,
-        alamat text,
-        jenjang text,
-        peran text
+        nama text, kabupaten text, instansi text, jabatan text, alamat text, jenjang text, peran text
       )
     `);
 
-    const firstLine = fs.readFileSync(tempCsv, "utf8").split("\n")[0];
-    const headers = firstLine
-      .split(delimiter)
-      .map((h) => h.replace(/"/g, "").trim().toLowerCase());
-
-    // Kolom yang diperbolehkan
-    const allowedColumns = [
-      "nama",
-      "kabupaten",
-      "instansi",
-      "jabatan",
-      "alamat",
-      "jenjang",
-      "peran",
-    ];
-
-    // Ambil hanya kolom yang valid
-    const validColumns = headers.filter((h) => allowedColumns.includes(h));
-
-    if (validColumns.length === 0) {
-      throw new Error("Tidak ada kolom peserta yang valid pada file");
-    }
-
-    // COPY dengan kolom dinamis
     const copyStream = client.query(
       copyFrom(`
-        COPY peserta_staging (${validColumns.join(",")})
-        FROM STDIN WITH (FORMAT csv, HEADER true, ENCODING 'UTF8', DELIMITER '${delimiter}')
+        COPY peserta_staging (${validCols.join(",")})
+        FROM STDIN WITH (FORMAT csv, HEADER true, ENCODING 'UTF8')
       `),
     );
 
     fs.createReadStream(tempCsv).pipe(copyStream);
     await waitFinish(copyStream);
 
-    /* =========================
-       3. INSERT KE TABEL UTAMA
-    ========================= */
     await client.query(
-      `INSERT INTO peserta (
-        nama,
-        kabupaten,
-        instansi,
-        jabatan,
-        alamat,
-        jenjang,
-        peran,
-        kegiatan_id
-      )
-      SELECT
-        TRIM(nama),
-        TRIM(kabupaten),
-        TRIM(instansi),
-        TRIM(jabatan),
-        TRIM(alamat),
-        TRIM(jenjang),
-        TRIM(peran),
-        $1
-      FROM peserta_staging`,
+      `
+      INSERT INTO peserta (kegiatan_id, ${validCols.join(",")})
+      SELECT $1, ${validCols.map((c) => `TRIM(${c})`).join(", ")}
+      FROM peserta_staging
+    `,
       [kegiatan_id],
     );
 
     await client.query("COMMIT");
-
-    /* =========================
-       4. CLEAN FILE
-    ========================= */
     fs.existsSync(filePath) && fs.unlinkSync(filePath);
-    ext === ".xlsx" && fs.existsSync(tempCsv) && fs.unlinkSync(tempCsv);
+    fs.existsSync(tempCsv) && fs.unlinkSync(tempCsv);
 
-    res.json({ message: "Upload peserta berhasil (XLSX/CSV)" });
+    res.json({ message: "Upload peserta berhasil" });
   } catch (err) {
     await client.query("ROLLBACK");
-    console.error("UPLOAD ERROR:", err);
-
     fs.existsSync(filePath) && fs.unlinkSync(filePath);
-    ext === ".xlsx" && fs.existsSync(tempCsv) && fs.unlinkSync(tempCsv);
-
+    fs.existsSync(tempCsv) && fs.unlinkSync(tempCsv);
+    console.error("UPLOAD ERROR:", err);
     res.status(500).json({ message: "Gagal memproses file: " + err.message });
   } finally {
     client.release();
   }
 };
 
-
 const uploadPpg = async (req, res) => {
   const filePath = req.file?.path;
-
   if (!filePath)
     return res.status(400).json({ message: "File wajib diupload" });
 
-  const filename = req.file.originalname;
-  const ext = path.extname(filename).toLowerCase();
-  const client = await pool.connect();
-  const tempCsv = ext === ".xlsx" ? filePath + ".csv" : filePath;
-
-  try {
-    if (ext === ".xlsx") {
-      const workbook = new ExcelJS.stream.xlsx.WorkbookReader(filePath);
-      const csv = fs.createWriteStream(tempCsv);
-
-      for await (const sheet of workbook) {
-        let headers = [];
-
-        for await (const row of sheet) {
-          if (row.number === 1) {
-            headers = row.values
-              .slice(1)
-              .map((h) =>
-                String(h).toLowerCase().replace(/\s+/g, "_")
-              );
-
-            csv.write(headers.join(",") + "\n");
-            continue;
-          }
-
-          const line = headers
-            .map((_, i) => {
-              let cell = row.getCell(i + 1).value;
-
-              // handle object dari exceljs
-              if (typeof cell === "object" && cell !== null) {
-                cell = cell.text || cell.result || null;
-              }
-
-              // ✅ kosong → NULL (BUKAN "")
-              if (cell === null || cell === undefined || cell === "") {
-                return "";
-              }
-
-              return `"${String(cell).replace(/"/g, '""')}"`;
-            })
-            .join(",");
-
-
-          csv.write(line + "\n");
-        }
-        break;
-      }
-
-      csv.end();
-      await waitFinish(csv);
-    }
-
-    await client.query("BEGIN");
-
-    await client.query(`
-      CREATE TEMP TABLE ppg_staging
-      (LIKE ppg INCLUDING DEFAULTS)
-    `);
-
-    const copyStream = client.query(
-      copyFrom(`
-        COPY ppg_staging
-        FROM STDIN
-        WITH (FORMAT csv, HEADER true, ENCODING 'UTF8')
-      `)
-    );
-
-    fs.createReadStream(tempCsv).pipe(copyStream);
-    await waitFinish(copyStream);
-
-    await client.query(`
-      INSERT INTO ppg
-      SELECT DISTINCT ON (no_ukg, tahun) *
-      FROM ppg_staging
-      ORDER BY no_ukg, tahun
-      ON CONFLICT (no_ukg, tahun)
-      DO UPDATE SET
-        nama_lengkap            = EXCLUDED.nama_lengkap,
-        no_hp                   = EXCLUDED.no_hp,
-        nama_sekolah            = EXCLUDED.nama_sekolah,
-        npsn_sekolah            = EXCLUDED.npsn_sekolah,
-        jenjang_sekolah         = EXCLUDED.jenjang_sekolah,
-        provinsi_sekolah        = EXCLUDED.provinsi_sekolah,
-        kota_kab_sekolah        = EXCLUDED.kota_kab_sekolah,
-        status_kesediaan        = EXCLUDED.status_kesediaan,
-        waktu_isi_kesediaan     = EXCLUDED.waktu_isi_kesediaan,
-        kode_bs_ppg             = EXCLUDED.kode_bs_ppg,
-        bidang_studi_ppg        = EXCLUDED.bidang_studi_ppg,
-        lptk                    = EXCLUDED.lptk,
-        status_plotting         = EXCLUDED.status_plotting,
-        alasan                  = EXCLUDED.alasan,
-        status_konfirmasi_email = EXCLUDED.status_konfirmasi_email,
-        waktu_konfirmasi_email  = EXCLUDED.waktu_konfirmasi_email,
-        email_konfirmasi        = EXCLUDED.email_konfirmasi,
-        tahap                   = EXCLUDED.tahap;
-    `);
-
-    await client.query("COMMIT");
-
-
-    fs.existsSync(filePath) && fs.unlinkSync(filePath);
-    ext === ".xlsx" &&
-      fs.existsSync(tempCsv) &&
-      fs.unlinkSync(tempCsv);
-
-    res.json({ message: "Upload data PPG berhasil" });
-
-  } catch (err) {
-    await client.query("ROLLBACK");
-    console.error("UPLOAD ERROR:", err);
-
-    fs.existsSync(filePath) && fs.unlinkSync(filePath);
-    ext === ".xlsx" &&
-      fs.existsSync(tempCsv) &&
-      fs.unlinkSync(tempCsv);
-
-    res.status(500).json({
-      message: "Gagal memproses file: " + err.message,
-    });
-  } finally {
-    client.release();
-  }
-};
-
-
-
-
-const uploadKegiatan = async (req, res) => {
-  const filePath = req.file?.path;
-
-  if (!filePath) {
-    return res.status(400).json({ message: "File wajib diupload" });
-  }
-
   const ext = path.extname(req.file.originalname).toLowerCase();
   const client = await pool.connect();
-  const tempCsv = ext === ".xlsx" ? filePath + ".csv" : filePath;
+  const tempCsv = filePath + ".formatted.csv";
+
+  const expectedCols = [
+    "no_ukg",
+    "tahun",
+    "nama_lengkap",
+    "no_hp",
+    "nama_sekolah",
+    "npsn_sekolah",
+    "jenjang_sekolah",
+    "provinsi_sekolah",
+    "kota_kab_sekolah",
+    "status_kesediaan",
+    "waktu_isi_kesediaan",
+    "kode_bs_ppg",
+    "bidang_studi_ppg",
+    "lptk",
+    "status_plotting",
+    "alasan",
+    "status_konfirmasi_email",
+    "waktu_konfirmasi_email",
+    "email_konfirmasi",
+    "tahap",
+  ];
 
   try {
-    /* =========================
-       1️⃣ XLSX → CSV (STREAM)
-    ========================= */
-    if (ext === ".xlsx") {
-      const workbook = new ExcelJS.stream.xlsx.WorkbookReader(filePath);
-      const csv = fs.createWriteStream(tempCsv);
-
-      for await (const sheet of workbook) {
-        let headers = [];
-
-        for await (const row of sheet) {
-          if (row.number === 1) {
-            headers = row.values.slice(1);
-            csv.write(headers.join(",") + "\n");
-            continue;
-          }
-
-          const line = headers
-            .map((_, i) => {
-              const cell = row.getCell(i + 1).value ?? "";
-              return `"${String(cell).replace(/"/g, '""').trim()}"`;
-            })
-            .join(",");
-
-          csv.write(line + "\n");
-        }
-        break;
-      }
-
-      csv.end();
-      await waitFinish(csv);
+    const validCols = await processFileToCsv(
+      filePath,
+      ext,
+      expectedCols,
+      tempCsv,
+    );
+    if (!validCols.includes("no_ukg") || !validCols.includes("tahun")) {
+      throw new Error("Kolom no_ukg dan tahun wajib ada pada file");
     }
 
-    /* =========================
-       2️⃣ COPY → STAGING TABLE
-    ========================= */
     await client.query("BEGIN");
-
     await client.query(`
-      DROP TABLE IF EXISTS kegiatan_staging;
-      CREATE TEMP TABLE kegiatan_staging
-      (
-        nama_kegiatan TEXT,
-        tanggal_mulai TEXT,
-        tanggal_selesai TEXT,
-        penanggung_jawab TEXT,
-        team_id TEXT,
-        tempat_pelaksanaan TEXT,
-        tahun TEXT,
-        sasaran_peserta TEXT,
-        total_peserta TEXT
-      )
+      DROP TABLE IF EXISTS ppg_staging;
+      CREATE TEMP TABLE ppg_staging (LIKE ppg INCLUDING DEFAULTS)
     `);
 
     const copyStream = client.query(
       copyFrom(`
-        COPY kegiatan_staging
-        FROM STDIN
-        WITH (FORMAT csv, HEADER true, ENCODING 'UTF8')
+        COPY ppg_staging (${validCols.join(",")})
+        FROM STDIN WITH (FORMAT csv, HEADER true, ENCODING 'UTF8')
       `),
     );
 
     fs.createReadStream(tempCsv).pipe(copyStream);
     await waitFinish(copyStream);
 
-    /* =========================
-       3️⃣ INSERT KE kegiatan (SMART DATE HANDLER)
-    ========================= */
+    let updateSet = validCols
+      .filter((c) => c !== "no_ukg" && c !== "tahun")
+      .map((c) => `${c} = EXCLUDED.${c}`)
+      .join(",\n        ");
+    if (updateSet) {
+      await client.query(`
+         INSERT INTO ppg (${validCols.join(",")})
+         SELECT DISTINCT ON (no_ukg, tahun) ${validCols.join(",")} FROM ppg_staging
+         ORDER BY no_ukg, tahun
+         ON CONFLICT (no_ukg, tahun)
+         DO UPDATE SET ${updateSet}
+       `);
+    } else {
+      await client.query(`
+         INSERT INTO ppg (${validCols.join(",")})
+         SELECT DISTINCT ON (no_ukg, tahun) ${validCols.join(",")} FROM ppg_staging
+         ORDER BY no_ukg, tahun
+         ON CONFLICT (no_ukg, tahun) DO NOTHING
+       `);
+    }
+
+    await client.query("COMMIT");
+    fs.existsSync(filePath) && fs.unlinkSync(filePath);
+    fs.existsSync(tempCsv) && fs.unlinkSync(tempCsv);
+
+    res.json({ message: "Upload data PPG berhasil" });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    fs.existsSync(filePath) && fs.unlinkSync(filePath);
+    fs.existsSync(tempCsv) && fs.unlinkSync(tempCsv);
+    console.error("UPLOAD ERROR:", err);
+    res.status(500).json({ message: "Gagal memproses file: " + err.message });
+  } finally {
+    client.release();
+  }
+};
+
+const uploadKegiatan = async (req, res) => {
+  const filePath = req.file?.path;
+  if (!filePath)
+    return res.status(400).json({ message: "File wajib diupload" });
+
+  const ext = path.extname(req.file.originalname).toLowerCase();
+  const client = await pool.connect();
+  const tempCsv = filePath + ".formatted.csv";
+
+  const expectedCols = [
+    "nama_kegiatan",
+    "tanggal_mulai",
+    "tanggal_selesai",
+    "penanggung_jawab",
+    "team_id",
+    "tempat_pelaksanaan",
+    "tahun",
+    "sasaran_peserta",
+    "total_peserta",
+  ];
+
+  try {
+    const validCols = await processFileToCsv(
+      filePath,
+      ext,
+      expectedCols,
+      tempCsv,
+    );
+
+    await client.query("BEGIN");
+    await client.query(`
+      DROP TABLE IF EXISTS kegiatan_staging;
+      CREATE TEMP TABLE kegiatan_staging
+      (
+        nama_kegiatan TEXT, tanggal_mulai TEXT, tanggal_selesai TEXT, penanggung_jawab TEXT,
+        team_id TEXT, tempat_pelaksanaan TEXT, tahun TEXT, sasaran_peserta TEXT, total_peserta TEXT
+      )
+    `);
+
+    const copyStream = client.query(
+      copyFrom(`
+        COPY kegiatan_staging (${validCols.join(",")})
+        FROM STDIN WITH (FORMAT csv, HEADER true, ENCODING 'UTF8')
+      `),
+    );
+
+    fs.createReadStream(tempCsv).pipe(copyStream);
+    await waitFinish(copyStream);
+
+    let selectFields = validCols.map((c) => {
+      if (c === "tanggal_mulai" || c === "tanggal_selesai") {
+        return `(
+          CASE
+            WHEN TRIM(${c}) ~ '^[0-9]+$' THEN DATE '1899-12-30' + TRIM(${c})::INT
+            WHEN TRIM(${c}) = '' THEN NULL
+            WHEN TRIM(${c}) ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN TRIM(${c})::DATE
+            ELSE NULL
+          END
+         )::DATE`;
+      }
+      if (
+        c === "team_id" ||
+        c === "tahun" ||
+        c === "sasaran_peserta" ||
+        c === "total_peserta"
+      ) {
+        return `NULLIF(TRIM(${c}), '')::INT`;
+      }
+      return `TRIM(${c})`;
+    });
+
     await client.query(
       `
-      INSERT INTO kegiatan (
-        users_id,
-        nama_kegiatan,
-        tanggal_mulai,
-        tanggal_selesai,
-        penanggung_jawab,
-        team_id,
-        tempat_pelaksanaan,
-        tahun,
-        sasaran_peserta,
-        total_peserta,
-        created_at,
-        updated_at
-      )
-      SELECT
-        $1,
-        TRIM(nama_kegiatan),
-        (
-          CASE
-            -- Excel serial number
-            WHEN TRIM(tanggal_mulai) ~ '^[0-9]+$'
-              THEN DATE '1899-12-30' + TRIM(tanggal_mulai)::INT
-
-            -- kosong
-            WHEN TRIM(tanggal_mulai) = ''
-              THEN NULL
-
-            -- ISO date string (YYYY-MM-DD)
-            WHEN TRIM(tanggal_mulai) ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-              THEN TRIM(tanggal_mulai)::DATE
-
-            -- fallback aman
-            ELSE NULL
-          END
-        )::DATE,
-        (
-          CASE
-            -- Excel serial number
-            WHEN TRIM(tanggal_selesai) ~ '^[0-9]+$'
-              THEN DATE '1899-12-30' + TRIM(tanggal_selesai)::INT
-
-            -- kosong
-            WHEN TRIM(tanggal_selesai) = ''
-              THEN NULL
-
-            -- ISO date string (YYYY-MM-DD)
-            WHEN TRIM(tanggal_selesai) ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-              THEN TRIM(tanggal_selesai)::DATE
-
-            -- fallback aman
-            ELSE NULL
-          END
-        )::DATE,
-        TRIM(penanggung_jawab),
-        NULLIF(TRIM(team_id), '')::INT,
-        TRIM(tempat_pelaksanaan),
-        NULLIF(TRIM(tahun), '')::INT,
-        NULLIF(TRIM(sasaran_peserta), '')::INT,
-        NULLIF(TRIM(total_peserta), '')::INT,
-        NOW(),
-        NOW()
+      INSERT INTO kegiatan (users_id, created_at, updated_at, ${validCols.join(",")})
+      SELECT $1, NOW(), NOW(), ${selectFields.join(", ")}
       FROM kegiatan_staging
-      `,
+    `,
       [req.user.id],
     );
 
     await client.query("COMMIT");
-
-    /* =========================
-       4️⃣ CLEAN FILE
-    ========================= */
     fs.existsSync(filePath) && fs.unlinkSync(filePath);
-    ext === ".xlsx" && fs.existsSync(tempCsv) && fs.unlinkSync(tempCsv);
+    fs.existsSync(tempCsv) && fs.unlinkSync(tempCsv);
 
-    res.json({
-      message: "Upload berhasil",
-    });
+    res.json({ message: "Upload berhasil" });
   } catch (err) {
     await client.query("ROLLBACK");
-
     fs.existsSync(filePath) && fs.unlinkSync(filePath);
-    ext === ".xlsx" && fs.existsSync(tempCsv) && fs.unlinkSync(tempCsv);
-
+    fs.existsSync(tempCsv) && fs.unlinkSync(tempCsv);
     console.error(err);
     res.status(500).json({ message: err.message });
   } finally {

@@ -97,7 +97,7 @@ export const getSekolahDetail = async (req, res) => {
         const offset = (page - 1) * limit;
 
         const sekolahQuery = `
-      SELECT nama, npsn, alamat_jalan, email 
+      SELECT * 
       FROM public.data_sekolah 
       WHERE LOWER(sekolah_id) = LOWER($1)
     `;
@@ -107,7 +107,7 @@ export const getSekolahDetail = async (req, res) => {
             return res.status(404).json({ message: "Sekolah tidak ditemukan" });
         }
 
-        const { nama: namaSekolah, npsn: npsnSekolah, alamat_jalan, email } = sekolahRes.rows[0];
+        const detailSekolahData = sekolahRes.rows[0];
 
         const dataQuery = `
       SELECT ptk_id, nama, semester, nik, nip, jenis_ptk, status_kepegawaian, jabatan_ptk
@@ -136,10 +136,9 @@ export const getSekolahDetail = async (req, res) => {
         const totalPages = Math.ceil(totalData / limit);
 
         res.json({
-            sekolah_terpilih: namaSekolah,
-            alamat: alamat_jalan,
-            email: email,
-            npsn: npsnSekolah,
+            ...detailSekolahData,
+            sekolah_terpilih: detailSekolahData.nama,
+            alamat: detailSekolahData.alamat_jalan,
             sekolah_id: sekolah_id.toLowerCase(),
             totalData: totalData,
             totalPages: totalPages,

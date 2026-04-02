@@ -31,7 +31,7 @@ app.use("/api", ppgRoutes);
 app.use("/api", uploadRoutes);
 app.use("/api/splitsdata", splitsdataRoutes);
 app.use("/api", userTeamRoutes);
-app.use("/api/deskripsi", deskripsiRoutes);
+app.use("/api", deskripsiRoutes);
 // root endpoint
 app.get("/", (req, res) => {
   res.send("Server berjalan...");
